@@ -1,6 +1,10 @@
-"""
-Basic webserver for BikeAndWatch to fetch rom data 
-"""
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "flask>=3.1.3",
+# ]
+# ///
+# Basic webserver for BikeAndWatch to fetch rom data 
 from flask import Flask, Response
 from pathlib import Path
 from base64 import b64encode
@@ -27,3 +31,5 @@ def get_rom_data(rom_name, bank):
 
     return Response(b64encode(rom.read(bank_size)), mimetype="text/plain")
 
+if __name__ == "__main__":
+    app.run(debug=True)
