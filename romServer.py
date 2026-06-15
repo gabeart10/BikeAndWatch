@@ -31,5 +31,17 @@ def get_rom_data(rom_name, bank):
 
     return Response(b64encode(rom.read(bank_size)), mimetype="text/plain")
 
+@app.route('/boot-rom')
+def get_boot_rom():
+    """
+    Get the boot rom.
+    """
+    boot_rom_path = Path("./roms/dmg_boot.bin")
+    if not boot_rom_path.is_file():
+        return "Boot Rom not found.", 400
+    
+    boot_rom = open(boot_rom_path, "rb")
+    return Response(b64encode(boot_rom.read()), mimetype="text/plain")
+
 if __name__ == "__main__":
     app.run(debug=True)
