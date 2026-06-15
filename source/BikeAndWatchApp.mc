@@ -9,18 +9,11 @@ class BikeAndWatchApp extends Application.AppBase {
         AppBase.initialize();
     }
 
-    var test;
-
     function ready() as Void {
-        for (var i = 0x0104; i < 0x0133; i++) {
-            System.print(test.readByte(i).format("%02X") + " ");
-        }
     }
 
     // onStart() is called on application start up
     function onStart(state as Dictionary?) as Void {
-        var url = "http://127.0.0.1:5000";
-        test = new GameCart(url, "Tetris", method(:ready));
     }
 
     // onStop() is called when your application is exiting
