@@ -15,9 +15,9 @@ class GameBoy {
         if (addr < 0x8000 && isWrite == false) {
             // ROM
             if (_cart != null) {
-                return _cart.readWord(addr);
+                return _cart.readByte(addr);
             } else {
-                return 0xFFFF; // No cart inserted, return open bus value
+                return 0xFF; // No cart inserted, return open bus value
             }
         } else {
             throw new Lang.Exception(); // TODO: Make Custom Exception

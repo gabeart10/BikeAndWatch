@@ -33,10 +33,10 @@ class GameCart {
         _trans.getData("0");
     }
 
-    function readWord(addr as Number) as Number {
-        if (_rom == null || addr >= (_rom.size() - 1)) {
+    function readByte(addr as Number) as Number {
+        if (_rom == null || addr >= _rom.size()) {
             throw new Lang.Exception();
         }
-        return (_rom[addr + 1] << 8) + _rom[addr];
+        return _rom[addr];
     }
 }
