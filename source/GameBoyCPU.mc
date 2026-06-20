@@ -5,7 +5,8 @@ class GameBoyCPU {
     private var _busRequest as BusRequestFunc;
     private var _pc as Number = 0; // Program Counter
     private var _sp as Number = 0; // Stack Pointer
-    private var _ZFlag as Number = 0; // Zero Flag
+    // Flags use various values to represent on for speed, but off is always 0
+    private var _nZFlag as Number = 0; // Not Zero Flag
     private var _NFlag as Number = 0; // Subtract Flag
     private var _HFlag as Number = 0; // Half Carry Flag
     private var _CFlag as Number = 0; // Carry Flag
@@ -78,6 +79,13 @@ class GameBoyCPU {
             default:
                 throw new Lang.Exception(); // Invalid 16-bit register
         }
+    }
+
+    private function calcFlags(firstVal as Number, secondVal as Number, result as Number, isSubtraction as Number, carryMask as Number) as Void {
+        _nZFlag = result;
+        _NFlag = isSubtraction;
+        _HFlag = (firstVal ^ secondVal ^ result) & 0x10;
+        _CFlag = result & carryMask;
     }
 
     function initialize(bootRom as ByteArray, busRequest as BusRequestFunc) {
@@ -317,90 +325,235 @@ class GameBoyCPU {
             }
 
             case OP_LD_HL_SP_s8: {
-                var offset = cpuBusRequest(_pc, null);
-                if (offset >= 0x80) {
-                    offset = -((~offset + 1) & 0xFF); // Convert to signed
-                }
-                var result = (_sp + offset) & 0xFFFF;
+                var offset = (cpuBusRequest(_pc, null) << 24) >> 24; // Convert to 32 bit signed
+                var result = _sp + offset;
                 _regs[REG_H] = (result >> 8) & 0xFF;
                 _regs[REG_L] = result & 0xFF;
 
-                // Set flags
-                _ZFlag = 0;
-                _NFlag = 0;
-                // Might be a better way to calc Half Carry
-                _HFlag = ((_sp & 0xF) + (offset & 0xF)) > 0xF ? 1 : 0;
-                _CFlag = (result > 0xFF) ? 1 : 0;
-
+                calcFlags(_sp, offset, result, 0, 0x10000);
                 _pc += 1;
                 mCycles += 2;
                 break;
             } 
 
             // ========== 8-bit Arithmetic Instructions ==========
+            case OP_ADD_A:
             case OP_ADD_B:
             case OP_ADD_C:
             case OP_ADD_D:
             case OP_ADD_E:
             case OP_ADD_H:
-            case OP_ADD_L:
-            case OP_ADD_HLptr:
-            case OP_ADD_A:
-            case OP_ADD_u8:
+            case OP_ADD_L: {
+                var value = _regs[opcode & 0x07];
+                var result = _regs[REG_A] + value;
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                break;
+            }
+
+            case OP_ADD_HLptr: {
+                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                var result = _regs[REG_A] + value;
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_ADD_u8: {
+                var value = cpuBusRequest(_pc, null);
+                var result = _regs[REG_A] + value;
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_ADC_A:
             case OP_ADC_B:
             case OP_ADC_C:
             case OP_ADC_D:
             case OP_ADC_E:
             case OP_ADC_H:
-            case OP_ADC_L:
-            case OP_ADC_HLptr:
-            case OP_ADC_A:
-            case OP_ADC_u8:
+            case OP_ADC_L: {
+                var value = _regs[opcode & 0x07];
+                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                break;
+            }
+
+            case OP_ADC_HLptr: {
+                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_ADC_u8: {
+                var value = cpuBusRequest(_pc, null);
+                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_SUB_A:
             case OP_SUB_B:
             case OP_SUB_C:
             case OP_SUB_D:
             case OP_SUB_E:
             case OP_SUB_H:
-            case OP_SUB_L:
-            case OP_SUB_HLptr:
-            case OP_SUB_A:
-            case OP_SUB_u8:
+            case OP_SUB_L: {
+                var value = _regs[opcode & 0x07];
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                break;
+            }
+
+            case OP_SUB_HLptr: {
+                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_SUB_u8: {
+                var value = cpuBusRequest(_pc, null);
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_SBC_A:
             case OP_SBC_B:
             case OP_SBC_C:
             case OP_SBC_D:
             case OP_SBC_E:
             case OP_SBC_H:
-            case OP_SBC_L:
-            case OP_SBC_HLptr:
-            case OP_SBC_A:
-            case OP_SBC_u8:
+            case OP_SBC_L: {
+                var value = _regs[opcode & 0x07];
+                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                break;
+            }
+
+            case OP_SBC_HLptr: {
+                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_SBC_u8: {
+                var value = cpuBusRequest(_pc, null);
+                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _regs[REG_A] = result & 0xFF;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_CP_A:
             case OP_CP_B:
             case OP_CP_C:
             case OP_CP_D:
             case OP_CP_E:
             case OP_CP_H:
-            case OP_CP_L:
-            case OP_CP_HLptr:
-            case OP_CP_A:
-            case OP_CP_u8:
+            case OP_CP_L: {
+                var value = _regs[opcode & 0x07];
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                break;
+            }
+
+            case OP_CP_HLptr: {
+                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                mCycles += 1;
+                break;
+            }
+
+            case OP_CP_u8: {
+                var value = cpuBusRequest(_pc, null);
+                var result = _regs[REG_A] - value;
+                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_INC_A:
             case OP_INC_B:
             case OP_INC_C:
             case OP_INC_D:
             case OP_INC_E:
             case OP_INC_H:
-            case OP_INC_L:
-            case OP_INC_HLptr:
-            case OP_INC_A:
+            case OP_INC_L: {
+                var value = _regs[opcode & 0x07];
+                var result = value + 1;
+                _nZFlag = result;
+                _NFlag = 0;
+                _HFlag = (value ^ result) & 0x10;
+                _regs[opcode & 0x07] = result & 0xFF;
+                break;
+            }
+
+            case OP_INC_HLptr: {
+                var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+                var value = cpuBusRequest(HL, null);
+                var result = value + 1;
+                _nZFlag = result;
+                _NFlag = 0;
+                _HFlag = (value ^ result) & 0x10;
+                cpuBusRequest(HL, result & 0xFF);
+                mCycles += 2;
+                break;
+            }
+
+            case OP_DEC_A:
             case OP_DEC_B:
             case OP_DEC_C:
             case OP_DEC_D:
             case OP_DEC_E:
             case OP_DEC_H:
-            case OP_DEC_L:
-            case OP_DEC_HLptr:
-            case OP_DEC_A:
-                // TODO: Implement 8-bit arithmetic instructions
+            case OP_DEC_L: {
+                var value = _regs[opcode & 0x07];
+                var result = value - 1;
+                _nZFlag = result;
+                _NFlag = 0;
+                _HFlag = (value ^ result) & 0x10;
+                _regs[opcode & 0x07] = result & 0xFF;
                 break;
+            }
+
+            case OP_DEC_HLptr: {
+                var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+                var value = cpuBusRequest(HL, null);
+                var result = value - 1;
+                _nZFlag = result;
+                _NFlag = 0;
+                _HFlag = (value ^ result) & 0x10;
+                cpuBusRequest(HL, result & 0xFF);
+                mCycles += 2;
+                break;
+            }
 
             // ========== 16-bit Arithmetic Instructions ==========
             case OP_ADD_HL_BC:
