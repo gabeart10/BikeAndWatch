@@ -1,6 +1,7 @@
 import Toybox.Lang;
 
-typedef BusRequestFunc as Method(addr as Number, data as Number?, isWrite as Boolean) as Number?;
+// data is null for read, otherwise it's a write
+typedef BusRequestFunc as Method(addr as Number, data as Number?) as Number;
 
 class GameBoy {
     private var _cart as GameCart?;
@@ -11,8 +12,8 @@ class GameBoy {
         _cpu = new GameBoyCPU(data, method(:busRequest));
     }
 
-    private function busRequest(addr as Number, data as Number?, isWrite as Boolean) as Number? {
-        if (addr < 0x8000 && isWrite == false) {
+    private function busRequest(addr as Number, data as Number?) as Number {
+        if (addr < 0x8000 && data == null) {
             // ROM
             if (_cart != null) {
                 return _cart.readByte(addr);
