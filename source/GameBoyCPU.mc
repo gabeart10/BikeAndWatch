@@ -572,36 +572,120 @@ class GameBoyCPU {
                 break;
 
             // ========== Bitwise Logic Instructions ==========
+            case OP_AND_A:
             case OP_AND_B:
             case OP_AND_C:
             case OP_AND_D:
             case OP_AND_E:
             case OP_AND_H:
-            case OP_AND_L:
-            case OP_AND_HLptr:
-            case OP_AND_A:
-            case OP_AND_u8:
+            case OP_AND_L: {
+                _regs[REG_A] &= _regs[opcode & 0x07];
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 1;
+                _CFlag = 0;
+                break;
+            }
+
+            case OP_AND_HLptr: {
+                _regs[REG_A] &= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 1;
+                _CFlag = 0;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_AND_u8: {
+                _regs[REG_A] &= cpuBusRequest(_pc, null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 1;
+                _CFlag = 0;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_XOR_A:
             case OP_XOR_B:
             case OP_XOR_C:
             case OP_XOR_D:
             case OP_XOR_E:
             case OP_XOR_H:
-            case OP_XOR_L:
-            case OP_XOR_HLptr:
-            case OP_XOR_A:
-            case OP_XOR_u8:
+            case OP_XOR_L: {
+                _regs[REG_A] ^= _regs[opcode & 0x07];
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
+                break;
+            }
+
+            case OP_XOR_HLptr: {
+                _regs[REG_A] ^= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_XOR_u8: {
+                _regs[REG_A] ^= cpuBusRequest(_pc, null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_OR_A:
             case OP_OR_B:
             case OP_OR_C:
             case OP_OR_D:
             case OP_OR_E:
             case OP_OR_H:
-            case OP_OR_L:
-            case OP_OR_HLptr:
-            case OP_OR_A:
-            case OP_OR_u8:
-            case OP_CPL:
-                // TODO: Implement bitwise logic instructions
+            case OP_OR_L: {
+                _regs[REG_A] |= _regs[opcode & 0x07];
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
                 break;
+            }
+
+            case OP_OR_HLptr: {
+                _regs[REG_A] |= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_OR_u8: {
+                _regs[REG_A] |= cpuBusRequest(_pc, null);
+                _nZFlag = _regs[REG_A];
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 0;
+                _pc += 1;
+                mCycles += 1;
+                break;
+            }
+
+            case OP_CPL: {
+                _regs[REG_A] = ~_regs[REG_A];
+                _NFlag = 1;
+                _HFlag = 1;
+                break;
+            }
 
             // ========== Bit Shift Instructions ==========
             case OP_RLCA:
