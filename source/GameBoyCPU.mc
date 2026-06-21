@@ -146,6 +146,8 @@ class GameBoyCPU {
                     cpuBusRequest(_sp, _pc & 0xFF);
                     // Set PC to ISR
                     _pc = 0x40 + (bit * 0x8);
+                    // Make sure state is correct and add delay
+                    _state = CPU_STATE_RUNNING;
                     mCycles += 4;
                 }
                 if_copy >>= 1;
