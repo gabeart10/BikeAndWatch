@@ -11,7 +11,7 @@ class GameBoyCPU {
     private var _HFlag as Number = 0; // Half Carry Flag
     private var _CFlag as Number = 0; // Carry Flag
     private var _ime as Boolean = false; // Interrupt Master Enable Flag
-    private var _imeNext as Boolean = false // Enable IME Next Cycle
+    private var _imeNext as Boolean = false; // Enable IME Next Cycle
     private var _ie as Number = 0; // Interrupt Enable Register
     // Registers: B, C, D, E, H, L, INVALID, A
     private var _regs as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -103,6 +103,11 @@ class GameBoyCPU {
         var mCycles = 1;
         var opcode = cpuBusRequest(_pc, null);
         _pc += 1;
+
+        if (_imeNext) {
+            _imeNext = false;
+            _ime = true;
+        }
 
         switch (opcode) {
             // ========== Load Instructions ==========
@@ -889,6 +894,7 @@ class GameBoyCPU {
                 _pc = cpuBusRequest(_sp, null);
                 _sp += 1;
                 _pc |= cpuBusRequest(_sp, null) << 8; 
+                _sp += 1;
                 mCycles += 3;
                 break;
             }
@@ -917,6 +923,7 @@ class GameBoyCPU {
                     _pc = cpuBusRequest(_sp, null);
                     _sp += 1;
                     _pc |= cpuBusRequest(_sp, null) << 8; 
+                    _sp += 1;
                     mCycles += 3;
                 }
                 mCycles += 1;
@@ -957,15 +964,65 @@ class GameBoyCPU {
             // ========== Stack Manipulation Instructions ==========
             case OP_PUSH_BC:
             case OP_PUSH_DE:
-            case OP_PUSH_HL:
-            case OP_PUSH_AF:
+            case OP_PUSH_HL: {
+                var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                _sp -= 1;
+                cpuBusRequest(_sp, pushData >> 8);
+                _sp -= 1;
+                cpuBusRequest(_sp, pushData & 0xFF);
+                mCycles += 3;
+            }
+
+            case OP_PUSH_AF: {
+                var pushData = _regs[REG_A] << 8;
+                pushData |= (!_nZFlag) ? 0x80 : 0x00;
+                pushData |= (_NFlag) ? 0x40 : 0x00;
+                pushData |= (_HFlag) ? 0x20 : 0x00;
+                pushData |= (_CFlag) ? 0x10 : 0x00;
+                _sp -= 1;
+                cpuBusRequest(_sp, pushData >> 8);
+                _sp -= 1;
+                cpuBusRequest(_sp, pushData & 0xFF);
+                mCycles += 3;
+            }
+
             case OP_POP_BC:
             case OP_POP_DE:
-            case OP_POP_HL:
-            case OP_POP_AF:
-            case OP_ADD_SP_s8:
-                // TODO: Implement stack manipulation instructions
+            case OP_POP_HL: {
+                var popData = cpuBusRequest(_sp, null);
+                _sp += 1;
+                popData |= cpuBusRequest(_sp, null) << 8; 
+                _sp += 1;
+                set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+                mCycles += 2;
+            }
+
+            case OP_POP_AF: {
+                var popData = cpuBusRequest(_sp, null);
+                _nZFlag = !(popData & 0x80);
+                _NFlag = popData & 0x40;
+                _HFlag = popData & 0x20;
+                _CFlag = popData & 0x10;
+                _sp += 1;
+                _regs[REG_A] = cpuBusRequest(_sp, null); 
+                _sp += 1;
+                mCycles += 2;
+            }
+
+            case OP_ADD_SP_s8: {
+                var offset = (cpuBusRequest(_pc, null) << 24) >> 24;
+                var result = _sp + offset;
+
+                _sp = result & 0xFFFF;
+                _nZFlag = 1;
+                _NFlag = 0;
+                _HFlag = (_sp ^ offset ^ result) & 0x10;
+                _CFlag = result & 0x100;
+
+                _pc += 1;
+                mCycles += 3;
                 break;
+            }
 
             // ========== Interrupt-related Instructions ==========
             case OP_DI: {
