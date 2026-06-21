@@ -247,3 +247,21 @@ enum OpcodesEnum {
     OP_CP_u8 = 0xFE,
     OP_RST_38H = 0xFF,
 }
+
+enum CBOpcodeGroups {
+    CB_GROUP_ROT_SHIFT = 0,
+    CB_GROUP_BIT = 1,
+    CB_GROUP_RES = 2,
+    CB_GROUP_SET = 3,
+}
+
+enum CBRotShiftType {
+    CB_ROT_SHIFT_TYPE_RLC = 0,
+    CB_ROT_SHIFT_TYPE_RRC = 1,
+    CB_ROT_SHIFT_TYPE_RL = 2,
+    CB_ROT_SHIFT_TYPE_RR = 3,
+    CB_ROT_SHIFT_TYPE_SLA = 4,
+    CB_ROT_SHIFT_TYPE_SRA = 5,
+    CB_ROT_SHIFT_TYPE_SWAP = 6,
+    CB_ROT_SHIFT_TYPE_SRL = 7,
+}

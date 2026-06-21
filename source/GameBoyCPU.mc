@@ -556,20 +556,40 @@ class GameBoyCPU {
             }
 
             // ========== 16-bit Arithmetic Instructions ==========
-            case OP_ADD_HL_BC:
-            case OP_ADD_HL_DE:
-            case OP_ADD_HL_HL:
-            case OP_ADD_HL_SP:
             case OP_INC_BC:
             case OP_INC_DE:
             case OP_INC_HL:
-            case OP_INC_SP:
+            case OP_INC_SP: {
+                var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                set16BitReg(reg, get16BitReg(reg) + 1);
+                mCycles += 1;
+                break;
+            }
+
             case OP_DEC_BC:
             case OP_DEC_DE:
             case OP_DEC_HL:
-            case OP_DEC_SP:
-                // TODO: Implement 16-bit arithmetic instructions
+            case OP_DEC_SP: {
+                var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                set16BitReg(reg, get16BitReg(reg) - 1);
+                mCycles += 1;
                 break;
+            }
+
+            case OP_ADD_HL_BC:
+            case OP_ADD_HL_DE:
+            case OP_ADD_HL_HL:
+            case OP_ADD_HL_SP: {
+                var HL = get16BitReg(REG_HL);
+                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                var result = HL + reg;
+                set16BitReg(REG_HL, result);
+                _NFlag = 0;
+                _HFlag = (HL ^ reg ^ result) & 0x1000;
+                _CFlag = result & 0x10000;
+                mCycles += 1;
+                break;
+            }
 
             // ========== Bitwise Logic Instructions ==========
             case OP_AND_A:
@@ -688,13 +708,50 @@ class GameBoyCPU {
             }
 
             // ========== Bit Shift Instructions ==========
-            case OP_RLCA:
-            case OP_RLA:
-            case OP_RRCA:
-            case OP_RRA:
-            case OP_CB_OP:
-                // TODO: Implement bit shift instructions (CB-prefixed)
+            case OP_RLCA: {
+                _CFlag = (_regs[REG_A] >> 7) & 0x1;
+                _regs[REG_A] = ((_regs[REG_A] << 1) | _CFlag) & 0xFF;
+                _nZFlag = 1;
+                _NFlag = 0;
+                _HFlag = 0;
                 break;
+            }
+
+            case OP_RRCA: {
+                _CFlag = _regs[REG_A] & 0x1;
+                _regs[REG_A] = (_regs[REG_A] >> 1) | (_CFlag << 7);
+                _nZFlag = 1;
+                _NFlag = 0;
+                _HFlag = 0;
+                break;
+            }
+
+            case OP_RLA: {
+                var oldCFlag = _CFlag;
+                _CFlag = (_regs[REG_A] >> 7) & 0x1;
+                _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
+                _nZFlag = 1;
+                _NFlag = 0;
+                _HFlag = 0;
+                break;
+            }
+
+            case OP_RRA: {
+                var oldCFlag = _CFlag;
+                _CFlag = _regs[REG_A] & 0x1;
+                _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
+                _nZFlag = 1;
+                _NFlag = 0;
+                _HFlag = 0;
+                break;
+            }
+
+            case OP_CB_OP: {
+                var cbOpcode = cpuBusRequest(_pc, null);
+                _pc += 1;
+                mCycles += doCBOP(cbOpcode) + 1;
+                break;
+            }
 
             // ========== Jumps and Subroutine Instructions ==========
             case OP_JP_u16:
@@ -731,10 +788,19 @@ class GameBoyCPU {
                 break;
 
             // ========== Carry Flag Instructions ==========
-            case OP_CCF:
-            case OP_SCF:
-                // TODO: Implement carry flag instructions
+            case OP_CCF: {
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = !_CFlag;
                 break;
+            }
+
+            case OP_SCF: {
+                _NFlag = 0;
+                _HFlag = 0;
+                _CFlag = 1;
+                break;
+            }
 
             // ========== Stack Manipulation Instructions ==========
             case OP_PUSH_BC:
@@ -765,5 +831,106 @@ class GameBoyCPU {
         }
 
         return mCycles;
+    }
+
+    // TODO: Look at if performance gains are worth converting this to one large switch
+    private function doCBOP(opcode as Number) as Number {
+        var regIndex = opcode & 0x07;
+        var opType = (opcode >> 3) & 0x07;
+        var group = opcode >> 6;
+        var isHL = regIndex == 6;
+        var value = isHL ? cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null) : _regs[regIndex];
+        var result = 0;
+
+        switch (group) {
+            case CB_GROUP_ROT_SHIFT: {
+                switch (opType) {
+                    case CB_ROT_SHIFT_TYPE_RLC: {
+                        _CFlag = (value >> 7) & 0x1;
+                        result = ((value << 1) | _CFlag) & 0xFF;
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_RRC: {
+                        _CFlag = value & 0x1;
+                        result = (value >> 1) | (_CFlag << 7);
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_RL: {
+                        var oldC = _CFlag;
+                        _CFlag = (value >> 7) & 0x1;
+                        result = ((value << 1) | oldC) & 0xFF;
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_RR: {
+                        var oldC = _CFlag;
+                        _CFlag = value & 0x1;
+                        result = (value >> 1) | (oldC << 7);
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_SLA: {
+                        _CFlag = (value >> 7) & 0x1;
+                        result = (value << 1) & 0xFF;
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_SRA: {
+                        _CFlag = value & 0x1;
+                        result = (value >> 1) | (value & 0x80);
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_SWAP: {
+                        _CFlag = 0;
+                        result = ((value << 4) & 0xF0) | (value >> 4);
+                        break;
+                    }
+
+                    case CB_ROT_SHIFT_TYPE_SRL: {
+                        _CFlag = value & 0x1;
+                        result = value >> 1;
+                        break;
+                    }
+                }
+                _nZFlag = result;
+                _NFlag = 0;
+                _HFlag = 0;
+                break;
+            }
+
+            case CB_GROUP_BIT: {
+                _nZFlag = (value >> opType) & 0x1;
+                _NFlag = 0;
+                _HFlag = 1;
+                break;
+            }
+
+            case CB_GROUP_RES: {
+                result = value & ~(1 << opType);
+                break;
+            }
+
+            case CB_GROUP_SET: {
+                result = value | (1 << opType);
+                break;
+            }
+        }
+
+        if (isHL) {
+            if (group != CB_GROUP_BIT) { 
+                cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], result); 
+                return 2;
+            } else {
+                return 1;
+            }
+        } else {
+            if (group != CB_GROUP_BIT) { 
+                _regs[regIndex] = result;
+            }
+            return 0;
+        }
     }
 }
