@@ -1,6 +1,8 @@
 import Toybox.Lang;
 import Toybox.System;
 
+typedef GBCPUSendIntFunc as Method(int as GameBoyCPU.IntSrc) as Void;
+
 class GameBoyCPU {
     private enum RegistersEnum {
         REG_B = 0,
@@ -30,7 +32,8 @@ class GameBoyCPU {
     }
 
     private var _bootRom as ByteArray?;
-    private var _busRequest as BusRequestFunc;
+    private var _hram as ByteArray = new ByteArray();
+    private var _busRequest as GBBusRequestFunc;
     private var _state as CPUState = CPU_STATE_RUNNING;
     private var _pc as Number = 0; // Program Counter
     private var _sp as Number = 0; // Stack Pointer
@@ -65,6 +68,13 @@ class GameBoyCPU {
                 return _ie;
             } else {
                 _ie = data;
+            }
+        } else if (addr >= 0xFF80) {
+            // HRAM
+            if (data == null) {
+                return _hram[addr - 0xFF80];
+            } else {
+                _hram[addr - 0xFF80] = data;
             }
         } else if (_bootRom != null && addr < 0x100 && data == null) {
             // During boot, the first 256 bytes of the address space are mapped to the boot ROM
@@ -119,9 +129,18 @@ class GameBoyCPU {
         _CFlag = result & carryMask;
     }
 
-    function initialize(bootRom as ByteArray, busRequest as BusRequestFunc) {
+    function initialize(bootRom as ByteArray, busRequest as GBBusRequestFunc) {
         _bootRom = bootRom;
         _busRequest = busRequest;
+
+        // Initalize HRAM
+        for (var i = 0; i < 127; i++) {
+            _hram.add(0);
+        }
+    }
+
+    function sendInt(int as IntSrc) as Void {
+        _if |= (0x1 << int);
     }
 
     function bootRomReady() as Boolean {
