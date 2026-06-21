@@ -152,28 +152,28 @@ class GameBoyCPU {
                 }
                 if_copy >>= 1;
             } 
-        }
-
-        switch (_state) {
-            case CPU_STATE_RUNNING: {
-                opcode = cpuBusRequest(_pc, null);
-                _pc += 1;
-                break;
-            }
-
-            case CPU_STATE_START_HALT: 
-            case CPU_STATE_HALTED: {
-                if ((_if & _ie) != 0) {
+        } else {
+            switch (_state) {
+                case CPU_STATE_RUNNING: {
                     opcode = cpuBusRequest(_pc, null);
-                    // Simulate HALT Bug
-                    if (_state != CPU_STATE_START_HALT) {
-                        _pc += 1;
-                    }
-                    _state = CPU_STATE_RUNNING;
-                } else {
-                    _state = CPU_STATE_HALTED;
+                    _pc += 1;
+                    break;
                 }
-                break;
+
+                case CPU_STATE_START_HALT: 
+                case CPU_STATE_HALTED: {
+                    if ((_if & _ie) != 0) {
+                        opcode = cpuBusRequest(_pc, null);
+                        // Simulate HALT Bug
+                        if (_state != CPU_STATE_START_HALT) {
+                            _pc += 1;
+                        }
+                        _state = CPU_STATE_RUNNING;
+                    } else {
+                        _state = CPU_STATE_HALTED;
+                    }
+                    break;
+                }
             }
         }
 
