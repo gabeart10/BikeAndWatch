@@ -1,20 +1,6 @@
 import Toybox.Lang;
 
 class GameBoyCPU {
-    private var _bootRom as ByteArray?;
-    private var _busRequest as BusRequestFunc;
-    private var _pc as Number = 0; // Program Counter
-    private var _sp as Number = 0; // Stack Pointer
-    // Flags use various values to represent on for speed, but off is always 0
-    private var _nZFlag as Number = 0; // Not Zero Flag
-    private var _NFlag as Number = 0; // Subtract Flag
-    private var _HFlag as Number = 0; // Half Carry Flag
-    private var _CFlag as Number = 0; // Carry Flag
-    private var _ime as Boolean = false; // Interrupt Master Enable Flag
-    private var _imeNext as Boolean = false; // Enable IME Next Cycle
-    private var _ie as Number = 0; // Interrupt Enable Register
-    // Registers: B, C, D, E, H, L, INVALID, A
-    private var _regs as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0];
     private enum RegistersEnum {
         REG_B = 0,
         REG_C = 1,
@@ -28,6 +14,36 @@ class GameBoyCPU {
         REG_HL = 2,
         REG_SP = 3
     }
+    private enum CPUState {
+        CPU_STATE_RUNNING = 0,
+        CPU_STATE_START_HALT,
+        CPU_STATE_HALTED
+    }
+    enum IntSrc {
+        INT_VBLANK = 0,
+        INT_LCD = 1,
+        INT_TIMER = 2,
+        INT_SERIAL = 3,
+        INT_JOYPAD = 4,
+        INT_END
+    }
+
+    private var _bootRom as ByteArray?;
+    private var _busRequest as BusRequestFunc;
+    private var _state as CPUState = CPU_STATE_RUNNING;
+    private var _pc as Number = 0; // Program Counter
+    private var _sp as Number = 0; // Stack Pointer
+    // Flags use various values to represent on for speed, but off is always 0
+    private var _nZFlag as Number = 0; // Not Zero Flag
+    private var _NFlag as Number = 0; // Subtract Flag
+    private var _HFlag as Number = 0; // Half Carry Flag
+    private var _CFlag as Number = 0; // Carry Flag
+    private var _ime as Boolean = false; // Interrupt Master Enable Flag
+    private var _imeNext as Boolean = false; // Enable IME Next Cycle
+    private var _ie as Number = 0; // Interrupt Enable Register
+    private var _if as Number = 0; // Interrupt Flag Register
+    // Registers: B, C, D, E, H, L, INVALID, A
+    private var _regs as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0];
 
     private function cpuBusRequest(addr as Number, data as Number?) as Number {
         if (addr == 0xFF50) {
@@ -36,6 +52,18 @@ class GameBoyCPU {
                 _bootRom = null; // Lock the boot ROM
             } else if (data == null) {
                 return _bootRom != null ? 1 : 0; 
+            }
+        } else if (addr == 0xFF0F) {
+            if (data == null) {
+                return _if;
+            } else {
+                _if = data;
+            }
+        } else if (addr == 0xFFFF) {
+            if (data == null) {
+                return _ie;
+            } else {
+                _ie = data;
             }
         } else if (_bootRom != null && addr < 0x100 && data == null) {
             // During boot, the first 256 bytes of the address space are mapped to the boot ROM
@@ -101,12 +129,50 @@ class GameBoyCPU {
 
     function step() as Number {
         var mCycles = 1;
-        var opcode = cpuBusRequest(_pc, null);
-        _pc += 1;
+        var opcode = OP_NOP;
 
-        if (_imeNext) {
-            _imeNext = false;
-            _ime = true;
+        // Check for Interrupt
+        if (_ime && (_if & _ie) != 0) {
+            var if_copy = _if;
+            _ime = false;
+            for (var bit = 0; bit < INT_END; bit++) {
+                if (if_copy & 0x1) {
+                    // Clear Interrupt Flag
+                    _if &= ~(0x1 << bit);
+                    // Push PC to Stack
+                    _sp -= 1;
+                    cpuBusRequest(_sp, _pc >> 8);
+                    _sp -= 1;
+                    cpuBusRequest(_sp, _pc & 0xFF);
+                    // Set PC to ISR
+                    _pc = 0x40 + (bit * 0x8);
+                    mCycles += 4;
+                }
+                if_copy >>= 1;
+            } 
+        }
+
+        switch (_state) {
+            case CPU_STATE_RUNNING: {
+                opcode = cpuBusRequest(_pc, null);
+                _pc += 1;
+                break;
+            }
+
+            case CPU_STATE_START_HALT: 
+            case CPU_STATE_HALTED: {
+                if ((_if & _ie) != 0) {
+                    opcode = cpuBusRequest(_pc, null);
+                    // Simulate HALT Bug
+                    if (_state != CPU_STATE_START_HALT) {
+                        _pc += 1;
+                    }
+                    _state = CPU_STATE_RUNNING;
+                } else {
+                    _state = CPU_STATE_HALTED;
+                }
+                break;
+            }
         }
 
         switch (opcode) {
@@ -1036,18 +1102,44 @@ class GameBoyCPU {
                 break;
             }
 
-            case OP_HALT:
-                // TODO: Implement interrupt-related instructions
+            case OP_HALT: {
+                _state = CPU_STATE_START_HALT;
                 break;
+            }
 
             // ========== Miscellaneous Instructions ==========
-            case OP_STOP:
-            case OP_DAA:
-            case OP_NOP:
+            case OP_DAA: {
+                var adj = 0;
+                if ((_HFlag != 0) || ((_NFlag == 0) && ((_regs[REG_A] & 0xF) > 0x9))) {
+                    adj += 0x6;
+                }
+                if ((_CFlag != 0) || ((_NFlag == 0) && (_regs[REG_A] > 0x99))) {
+                    adj += 0x60;
+                    if (_NFlag == 0) {
+                        _CFlag = 1;
+                    }
+                }
+                if (_NFlag != 0) {
+                    _regs[REG_A] -= adj;
+                } else {
+                    _regs[REG_A] += adj;
+                }
                 break;
+            }
 
+            case OP_NOP: {
+                break;
+            }
+
+            // TODO: Implement STOP
+            case OP_STOP:
             default:
                 throw new Lang.Exception(); // Opcode not implemented
+        }
+
+        if (_imeNext && opcode != OP_EI) {
+            _imeNext = false;
+            _ime = true;
         }
 
         return mCycles;
