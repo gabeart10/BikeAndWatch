@@ -1,4 +1,5 @@
 import Toybox.Lang;
+import Toybox.System;
 
 class GameBoyCPU {
     private enum RegistersEnum {
@@ -176,6 +177,8 @@ class GameBoyCPU {
                 }
             }
         }
+
+        System.println("PC: 0x" + _pc.format("%02X") + " Op: 0x" + opcode.format("%02X"));
 
         switch (opcode) {
             // ========== Load Instructions ==========

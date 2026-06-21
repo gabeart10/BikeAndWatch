@@ -4,16 +4,14 @@ import Toybox.Lang;
 import Toybox.WatchUi;
 
 class BikeAndWatchApp extends Application.AppBase {
-
+    var gb as GameBoy?;
     function initialize() {
         AppBase.initialize();
     }
 
-    function ready() as Void {
-    }
-
     // onStart() is called on application start up
     function onStart(state as Dictionary?) as Void {
+        gb = new GameBoy("http://127.0.0.1:5000");
     }
 
     // onStop() is called when your application is exiting

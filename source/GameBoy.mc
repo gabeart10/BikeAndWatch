@@ -8,11 +8,14 @@ class GameBoy {
     private var _cpu as GameBoyCPU?;
     private var _bootRomRequest as ExternalDataRequester;
 
-    private function bootRomReady(data as ByteArray, requestString as String) as Void {
+    function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
+        for (var n = 0; n < 100; n++) {
+            _cpu.step();
+        }
     }
 
-    private function busRequest(addr as Number, data as Number?) as Number {
+    function busRequest(addr as Number, data as Number?) as Number {
         if (addr < 0x8000 && data == null) {
             // ROM
             if (_cart != null) {
@@ -21,7 +24,7 @@ class GameBoy {
                 return 0xFF; // No cart inserted, return open bus value
             }
         } else {
-            throw new Lang.Exception(); // TODO: Make Custom Exception
+            return 0xFF;
         }
     }
 

@@ -8,7 +8,7 @@ class ExternalDataRequester {
     private var _inProgress as Boolean = false;
     private var _url as String;
 
-    private function onReceive(responseCode as Number, data as String) as Void {
+    function onReceive(responseCode as Number, data as String) as Void {
         _inProgress = false;
         if (responseCode == 200) {
             _callBack.invoke(StringUtil.convertEncodedString(data, {:fromRepresentation => StringUtil.REPRESENTATION_STRING_BASE64, :toRepresentation => StringUtil.REPRESENTATION_BYTE_ARRAY}), _requestString);

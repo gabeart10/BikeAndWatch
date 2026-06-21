@@ -6,7 +6,7 @@ class GameCart {
     private var _trans as ExternalDataRequester;
     private var _readyCallback as Method();
 
-    private function bankReady(data as ByteArray, bank_string as String) as Void {
+    protected function bankReady(data as ByteArray, bank_string as String) as Void {
         // TODO: Clean up with states
         if (_rom == null) {
             // Rom only null on init
