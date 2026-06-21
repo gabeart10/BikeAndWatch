@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-enum OpcodesEnum {
+enum Opcodes {
     OP_NOP = 0x00,
     OP_LD_BC_u16 = 0x01,
     OP_LD_BCptr_A = 0x02,
@@ -246,6 +246,13 @@ enum OpcodesEnum {
     OP_EI = 0xFB,
     OP_CP_u8 = 0xFE,
     OP_RST_38H = 0xFF,
+}
+
+enum JumpCond {
+    JUMP_COND_NZ = 0,
+    JUMP_COND_Z = 1,
+    JUMP_COND_NC = 2,
+    JUMP_COND_C = 3,
 }
 
 enum CBOpcodeGroups {

@@ -10,6 +10,8 @@ class GameBoyCPU {
     private var _NFlag as Number = 0; // Subtract Flag
     private var _HFlag as Number = 0; // Half Carry Flag
     private var _CFlag as Number = 0; // Carry Flag
+    private var _ime as Boolean = false; // Interrupt Master Enable Flag
+    private var _imeNext as Boolean = false // Enable IME Next Cycle
     private var _ie as Number = 0; // Interrupt Enable Register
     // Registers: B, C, D, E, H, L, INVALID, A
     private var _regs as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -749,33 +751,178 @@ class GameBoyCPU {
             case OP_CB_OP: {
                 var cbOpcode = cpuBusRequest(_pc, null);
                 _pc += 1;
-                mCycles += doCBOP(cbOpcode) + 1;
+                mCycles += doCBOP(cbOpcode);
                 break;
             }
 
             // ========== Jumps and Subroutine Instructions ==========
-            case OP_JP_u16:
-            case OP_JP_HL:
+            case OP_JP_u16: {
+                _pc = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
+                mCycles += 3;
+                break;
+            }
+
+            case OP_JP_HL: {
+                _pc = get16BitReg(REG_HL);
+                break;
+            }
+
             case OP_JP_NZ_u16:
             case OP_JP_Z_u16:
             case OP_JP_NC_u16:
-            case OP_JP_C_u16:
-            case OP_JR_s8:
+            case OP_JP_C_u16: {
+                var cond = false;
+                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
+                var jmpAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
+                switch ((opcode >> 3) & 0x3) {
+                    case JUMP_COND_Z:
+                        cond = !_nZFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = _nZFlag;
+                        break;
+                    case JUMP_COND_C:
+                        cond = _CFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = !_CFlag;
+                        break;
+                }
+
+                if (cond) {
+                    _pc = jmpAddr;
+                    mCycles += 1;
+                } else {
+                    _pc += 2;
+                }
+                mCycles += 2;
+                break;
+            }
+
+            case OP_JR_s8: {
+                _pc = (_pc + 1 + ((cpuBusRequest(_pc, null) << 24) >> 24)) & 0xFFFF;
+                mCycles += 2;
+                break;
+            }
+
             case OP_JR_NZ_s8:
             case OP_JR_Z_s8:
             case OP_JR_NC_s8:
-            case OP_JR_C_s8:
-            case OP_CALL_u16:
+            case OP_JR_C_s8: {
+                var cond = false;
+                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
+                var offset = (cpuBusRequest(_pc, null) << 24) >> 24;
+                _pc += 1;
+                switch ((opcode >> 3) & 0x3) {
+                    case JUMP_COND_Z:
+                        cond = !_nZFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = _nZFlag;
+                        break;
+                    case JUMP_COND_C:
+                        cond = _CFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = !_CFlag;
+                        break;
+                }
+
+                if (cond) {
+                    _pc = (_pc + offset) & 0xFFFF;
+                    mCycles += 1;
+                }
+                mCycles += 1;
+                break;
+            }
+
+            case OP_CALL_u16: {
+                var callAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
+                _pc += 2;
+                _sp -= 1;
+                cpuBusRequest(_sp, _pc >> 8);
+                _sp -= 1;
+                cpuBusRequest(_sp, _pc & 0xFF);
+                _pc = callAddr;
+                mCycles += 5;
+            }
+
             case OP_CALL_NZ_u16:
             case OP_CALL_Z_u16:
             case OP_CALL_NC_u16:
-            case OP_CALL_C_u16:
-            case OP_RET:
+            case OP_CALL_C_u16: {
+                var cond = false;
+                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
+                var callAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
+                _pc += 2;
+                switch ((opcode >> 3) & 0x3) {
+                    case JUMP_COND_Z:
+                        cond = !_nZFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = _nZFlag;
+                        break;
+                    case JUMP_COND_C:
+                        cond = _CFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = !_CFlag;
+                        break;
+                }
+
+                if (cond) {
+                    _sp -= 1;
+                    cpuBusRequest(_sp, _pc >> 8);
+                    _sp -= 1;
+                    cpuBusRequest(_sp, _pc & 0xFF);
+                    _pc = callAddr;
+                    mCycles += 3;
+                }
+                mCycles += 2;
+                break;
+            }
+
+
+            case OP_RETI:
+                _ime = true;
+            case OP_RET: {
+                _pc = cpuBusRequest(_sp, null);
+                _sp += 1;
+                _pc |= cpuBusRequest(_sp, null) << 8; 
+                mCycles += 3;
+                break;
+            }
+
             case OP_RET_NZ:
             case OP_RET_Z:
             case OP_RET_NC:
-            case OP_RET_C:
-            case OP_RETI:
+            case OP_RET_C: {
+                var cond = false;
+                switch ((opcode >> 3) & 0x3) {
+                    case JUMP_COND_Z:
+                        cond = !_nZFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = _nZFlag;
+                        break;
+                    case JUMP_COND_C:
+                        cond = _CFlag;
+                        break;
+                    case JUMP_COND_NZ:
+                        cond = !_CFlag;
+                        break;
+                }
+
+                if (cond) {
+                    _pc = cpuBusRequest(_sp, null);
+                    _sp += 1;
+                    _pc |= cpuBusRequest(_sp, null) << 8; 
+                    mCycles += 3;
+                }
+                mCycles += 1;
+                break;
+            }
+
             case OP_RST_00H:
             case OP_RST_08H:
             case OP_RST_10H:
@@ -783,9 +930,14 @@ class GameBoyCPU {
             case OP_RST_20H:
             case OP_RST_28H:
             case OP_RST_30H:
-            case OP_RST_38H:
-                // TODO: Implement jumps and subroutine instructions
-                break;
+            case OP_RST_38H: {
+                _sp -= 1;
+                cpuBusRequest(_sp, _pc >> 8);
+                _sp -= 1;
+                cpuBusRequest(_sp, _pc & 0xFF);
+                _pc = opcode & 0x38;
+                mCycles += 3;
+            }
 
             // ========== Carry Flag Instructions ==========
             case OP_CCF: {
@@ -816,18 +968,29 @@ class GameBoyCPU {
                 break;
 
             // ========== Interrupt-related Instructions ==========
-            case OP_DI:
-            case OP_EI:
+            case OP_DI: {
+                _ime = false;
+                _imeNext = false;
+                break;
+            }
+
+            case OP_EI: {
+                _imeNext = true;
+                break;
+            }
+
             case OP_HALT:
                 // TODO: Implement interrupt-related instructions
                 break;
 
             // ========== Miscellaneous Instructions ==========
-            case OP_NOP:
             case OP_STOP:
             case OP_DAA:
-                // TODO: Implement miscellaneous instructions
+            case OP_NOP:
                 break;
+
+            default:
+                throw new Lang.Exception(); // Opcode not implemented
         }
 
         return mCycles;
@@ -922,15 +1085,15 @@ class GameBoyCPU {
         if (isHL) {
             if (group != CB_GROUP_BIT) { 
                 cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], result); 
-                return 2;
+                return 3;
             } else {
-                return 1;
+                return 2;
             }
         } else {
             if (group != CB_GROUP_BIT) { 
                 _regs[regIndex] = result;
             }
-            return 0;
+            return 1;
         }
     }
 }
