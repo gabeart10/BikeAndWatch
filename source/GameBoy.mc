@@ -6,13 +6,15 @@ typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
 class GameBoy {
     private var _cart as GameCart?;
     private var _cpu as GameBoyCPU?;
+    private var _timer as GameBoyTimer?;
     private var _wram as ByteArray = new ByteArray();
     private var _bootRomRequest as ExternalDataRequester;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
+        _timer = new GameBoyTimer(_cpu.method(:sendInt));
         for (var n = 0; n < 100; n++) {
-            _cpu.step();
+            (_cpu as GameBoyCPU).step();
         }
     }
 
@@ -21,8 +23,6 @@ class GameBoy {
             // ROM
             if (_cart != null) {
                 return _cart.readByte(addr);
-            } else {
-                return 0xFF; // No cart inserted, return open bus value
             }
         } else if (addr < 0xA000) {
             // VRAM
@@ -55,16 +55,20 @@ class GameBoy {
             return 0xFF;
         } else if (addr < 0xFF08) {
             // Timer registers
-            return 0xFF;
+            return (_timer as GameBoyTimer).busRequest(addr, data);
         } else if (addr < 0xFF40) {
             // Audio
             return 0xFF;
         } else if (addr < 0xFF4C) {
             // LCD
             return 0xFF;
-        } else if (addr == 0xFF46) {
+        } else if (addr == 0xFF46 && data != null) {
             // OAM DMA
-            return 0xFF;
+            var src = data << 8;
+            for (var dest = 0xFE00; dest < 0xFEA0; dest++) {
+                busRequest(dest, busRequest(src, null));
+                src++;
+            }
         }
 
         return 0xFF;
