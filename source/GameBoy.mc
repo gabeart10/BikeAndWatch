@@ -7,12 +7,15 @@ class GameBoy {
     private var _cart as GameCart?;
     private var _cpu as GameBoyCPU?;
     private var _timer as GameBoyTimer?;
+    private var _ppu as GameBoyPPU?;
     private var _wram as ByteArray = new ByteArray();
+    private var _dummyAudio as ByteArray = new ByteArray();
     private var _bootRomRequest as ExternalDataRequester;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
-        _timer = new GameBoyTimer(_cpu.method(:sendInt));
+        _timer = new GameBoyTimer((_cpu as GameBoyCPU).method(:sendInt));
+        _ppu = new GameBoyPPU((_cpu as GameBoyCPU).method(:sendInt));
         for (var n = 0; n < 100; n++) {
             (_cpu as GameBoyCPU).step();
         }
@@ -46,7 +49,7 @@ class GameBoy {
             }
         } else if (addr < 0xFEA0) {
             // OAM
-            return 0xFF;
+            return (_ppu as GameBoyPPU).busRequest(addr, data);
         } else if (addr == 0xFF00) {
             // Joypad Input
             return 0xFF;
@@ -57,11 +60,15 @@ class GameBoy {
             // Timer registers
             return (_timer as GameBoyTimer).busRequest(addr, data);
         } else if (addr < 0xFF40) {
-            // Audio
-            return 0xFF;
+            // Audio (dummied out by acting as normal ram)
+            if (data == null) {
+                return _dummyAudio[addr - 0xFF10];
+            } else {
+                _dummyAudio[addr - 0xFF10] = data;
+            }
         } else if (addr < 0xFF4C) {
             // LCD
-            return 0xFF;
+            return (_ppu as GameBoyPPU).busRequest(addr, data);
         } else if (addr == 0xFF46 && data != null) {
             // OAM DMA
             var src = data << 8;
@@ -81,6 +88,11 @@ class GameBoy {
         // Fill WRAM
         for (var i = 0; i < 4096; i++) {
             _wram.add(0);
+        }
+
+        // Fill Dummy Audio
+        for (var i = 0; i < 22; i++) {
+            _dummyAudio.add(0);
         }
     }
 
