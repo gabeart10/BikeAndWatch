@@ -357,9 +357,13 @@ class GameBoyPPU {
         } else if (addr < 0xFF4A) {
             // OBJ Palette Data
             if (data == null) {
-                return _obp[addr - 0xFF48];
+                return (addr == 0xFF49) ? _obp1 : _obp0;
             } else {
-                _obp[addr - 0xFF48] = data;
+                if (addr == 0xFF49) {
+                    _obp1 = data;
+                } else {
+                    _obp0 = data;
+                }
             }
         } else if (addr == 0xFF4A) {
             // Window Y Pos
