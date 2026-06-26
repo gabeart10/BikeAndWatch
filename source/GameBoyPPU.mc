@@ -7,6 +7,8 @@ class GameBoyPPU {
     const SCREEN_WIDTH = 160;
     const SCREEN_HEIGHT = 144;
     const VBLANK_LINES = 10;
+    const TILEMAP_START_ZERO = 0x1800;
+    const TILEMAP_START_ONE = 0x1C00;
     private enum PPUMode {
         PPUMODE_HBLANK = 0,
         PPUMODE_VBLANK = 1,
@@ -56,17 +58,21 @@ class GameBoyPPU {
     private var _scy as Number = 0; // Background Viewport Y
     private var _scx as Number = 0; // Background Viewport X
     private var _bgp as Number = 0; // Background Palette Data
-    private var _obp as Array<Number> = [0, 0]; // OBJ Palette Data 
+    private var _obp0 as Number = 0; // OBJ0 Palette Data 
+    private var _obp1 as Number = 0; // OBJ1 Palette Data 
     private var _colorMap as Array<Graphics.ColorValue> = [Graphics.COLOR_WHITE, Graphics.COLOR_LT_GRAY, Graphics.COLOR_DK_GRAY, Graphics.COLOR_BLACK];
     private var _wy as Number = 0; // Window Y Pos
-    private var _wx as Number = 0; // Window X Pos
+    private var _wx as Number = 0; // Window X Pos - 7
+    private var _wYPos as Number = 0;
+    private var _yCond as Boolean = false;
 
     private function drawLine() as Void {
+        var bmDc = _bitmap.getDc();
         var selOBJs = new[0];
+        var objHeight = (_lcdc & LCDCBIT_OBJ_SIZE) ? 16 : 8; 
 
         // Get OBJs on line
         if (_lcdc & LCDCBIT_OBJ_EN) {
-            var objHeight = (_lcdc & LCDCBIT_OBJ_SIZE) ? 16 : 8; 
             for (var oamIdx = 0; oamIdx < 160; oamIdx += 4) {
                 var objYScreen = _oam[oamIdx + OBJBYTE_Y_POS] - 17;
                 if (objYScreen <= _ly && _ly < (objYScreen + objHeight)) {
@@ -81,17 +87,92 @@ class GameBoyPPU {
 
         var objsFound = selOBJs.size();
         var objStartIdx = 0;
+        var tileDataAddrMode = _lcdc & LCDCBIT_BG_WIN_TILE_DATA;
+
+        var bgEn = _lcdc & LCDCBIT_BG_WIN_EN;
+        var bgYPos = (_scy + _ly) % 256;
+        var bgTileY = bgYPos % 8;
+        var bgTileIdxStart = (_lcdc & LCDCBIT_BG_TILE_MAP) ? TILEMAP_START_ONE : TILEMAP_START_ZERO;
+        bgTileIdxStart += (bgYPos / 8) * 32;
+
+        var wEn = (bgEn != 0) && ((_lcdc & LCDCBIT_WIN_EN) != 0);
+        var wTileY = _wYPos % 8;
+        var wTileIdxStart = (_lcdc & LCDCBIT_WIN_TILE_MAP) ? TILEMAP_START_ONE : TILEMAP_START_ZERO;
+        wTileIdxStart += (_wYPos / 8) * 32;
+
         for (var lineX = 0; lineX < SCREEN_WIDTH; lineX++) {
-            var objColor = null;
-            var objColorIdx = null;
-            var objPriority = null;
+            // Find window or background tile and tile cords
+            var baseColorIdx = 0;
+            var baseColor = 0;
+            var baseTileIdx = null;
+            var baseTileX = null;
+            var baseTileY = null;
+            if (wEn && _yCond && lineX >= _wx) {
+                var wX = lineX - _wx;
+                baseTileIdx = _vram[wTileIdxStart + (wX / 8)];
+                baseTileX = wX % 8;
+                baseTileY = wTileY;
+            } else if (bgEn) {
+                var bgX = (lineX + _scx) & 256;
+                baseTileIdx = _vram[bgTileIdxStart + (bgX / 8)];
+                baseTileX = bgX % 8;
+                baseTileY = bgTileY;
+            }
+
+            // Find window or background color
+            if (baseTileIdx != null) {
+                var tileDataIdx = (baseTileY as Number) * 2;
+                if (tileDataAddrMode) {
+                    tileDataIdx += baseTileIdx * 16;
+                } else {
+                    tileDataIdx += 0x800 + ((baseTileIdx << 24) >> 24) * 16;
+                }
+                baseColorIdx = ((_vram[tileDataIdx + 1] >> (baseTileX as Number)) & 0x1) << 1;
+                baseColorIdx |= (_vram[tileDataIdx] >> (baseTileX as Number)) & 0x1;
+                baseColor = (_bgp >> (baseColorIdx * 2)) & 0x3;
+            }
+
+            // Check for object overwriting background/window color
             for (var objIdx = objStartIdx; objIdx < objsFound; objIdx++) {
                 var objOAMIdx = selOBJs[objIdx];
                 var objX = _oam[objOAMIdx + OBJBYTE_X_POS];
                 if (objX <= lineX) {
                     if (lineX < (objX + OBJ_WIDTH)) {
                         // Found possible OBJ
-                        
+                        var objAttr = _oam[objOAMIdx + OBJBYTE_ATTR];
+                        var objTileIdx = _oam[objOAMIdx + OBJBYTE_TILE_IDX];
+                        var objTileX;
+                        var objTileY;
+
+                        if (objHeight == 16) {
+                            // Enforce Ignoring LSB for 8x16 Objs
+                            objTileIdx &= 0xFE;
+                        }
+                        objTileIdx *= 16;
+
+                        if (objAttr & OBJATTRBIT_X_FLIP) {
+                            objTileX = _oam[objOAMIdx + OBJBYTE_X_POS] - lineX - 1;
+                        } else {
+                            objTileX = lineX - (_oam[objOAMIdx + OBJBYTE_X_POS] - 8);
+                        }
+
+                        objTileY = _ly - (_oam[objOAMIdx + OBJBYTE_Y_POS] - 16);
+                        if (objAttr & OBJATTRBIT_Y_FLIP) {
+                            objTileY = objHeight - 1 - objTileY;
+                        }
+
+                        objTileIdx += objTileY * 2;
+                        var objColorIdx = ((_vram[objTileIdx + 1] >> objTileX) & 0x1) << 1;
+                        objColorIdx |= (_vram[objTileIdx] >> objTileX) & 0x1;
+                        if (objColorIdx != 0) {
+                            // Found OBJ to use for this pixel
+                            if (objColorIdx == 0 || ((objAttr & OBJATTRBIT_PRIORITY) == 0)) {
+                                var objPalette = (OBJBYTE_ATTR & OBJATTRBIT_PALETTE) ? _obp1 : _obp0;
+                                baseColor = (objPalette >> (objColorIdx * 2)) & 0x3;
+                            }
+                            // Always break on first non-transparent obj color
+                            break;
+                        }
                     } else {
                         // If we reach here we are past the obj, update start 
                         // idx so we don't iterate over this obj again
@@ -99,6 +180,15 @@ class GameBoyPPU {
                     }
                 }
             }
+
+            // Draw pixel on bitmap
+            bmDc.setColor(_colorMap[baseColor], Graphics.COLOR_PINK);
+            bmDc.drawPoint(lineX, _ly);
+        }
+
+        // If we drew any of the window on this line increase wYPos
+        if (wEn && _yCond && _wx < SCREEN_WIDTH) {
+            _wYPos++;
         }
     }
 
@@ -153,6 +243,9 @@ class GameBoyPPU {
                 case PPUMODE_OAM_SCAN: {
                     _ppuMode = PPUMODE_DRAW;
                     _ppuModeTick = PPUCYCLE_DRAW;
+                    if (_ly == _wy) {
+                        _yCond = true;
+                    }
                     drawLine();
                     break;
                 }
@@ -179,6 +272,8 @@ class GameBoyPPU {
                     _ly++;
                     if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
                         _ly = 0;
+                        _wYPos = 0;
+                        _yCond = false;
                         _ppuMode = PPUMODE_OAM_SCAN;
                         _ppuModeTick = PPUCYCLE_OAM_SCAN;
                     } else {
@@ -276,9 +371,9 @@ class GameBoyPPU {
         } else if (addr == 0xFF4B) {
             // Window X Pos
             if (data == null) {
-                return _wx;
+                return _wx - 7;
             } else {
-                _wx = data;
+                _wx = data + 7;
             }
         }
         return 0xFF;
