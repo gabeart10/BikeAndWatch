@@ -281,99 +281,94 @@ class GameBoyPPU {
         }
     }
 
-    function busRequest(addr as Number, data as Number?) as Number {
+    function busRead(addr as Number) as Number {
         if (addr < 0xA000) {
             // VRAM
-            if (data == null) {
-                return _vram[addr - 0x8000];
-            } else {
-                _vram[addr - 0x8000] = data;
-            }
+            return _vram[addr - 0x8000];
         } else if (addr < 0xFEA0) {
             // OAM
-            if (data == null) {
-                return _oam[addr - 0xFE00];
-            } else {
-                _oam[addr - 0xFE00] = data;
-            }
+            return _oam[addr - 0xFE00];
         } else if (addr == 0xFF40) {
             // LCD Control
-            if (data == null) {
-                return _lcdc;
-            } else {
-                if ((data & LCDCBIT_LCD_EN) == 0) {
-                    // Reset PPU if disabled
-                    _ppuMode = PPUMODE_OAM_SCAN;
-                    _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                    _ly = 0;
-                }
-                _lcdc = data;
-            }
+            return _lcdc;
         } else if (addr == 0xFF41) {
             // LCD Status
-            if (data == null) {
-                _stat = (_stat & ~(0x7)) | (((_lyc == _ly) ? 0x1 : 0x0) << 2) | _ppuMode;
-                return _stat;
-            } else {
-                _stat = data;
-            }
+            _stat = (_stat & ~(0x7)) | (((_lyc == _ly) ? 0x1 : 0x0) << 2) | _ppuMode;
+            return _stat;
         } else if (addr == 0xFF42) {
             // Background Viewport Y
-            if (data == null) {
-                return _scy;
-            } else {
-                _scy = data;
-            }
+            return _scy;
         } else if (addr == 0xFF43) {
             // Background Viewport X
-            if (data == null) {
-                return _scx;
-            } else {
-                _scx = data;
-            }
+            return _scx;
         } else if (addr == 0xFF44) {
             // LCD Y Cord
             return _ly;
         } else if (addr == 0xFF45) {
             // LY Compare
-            if (data == null) {
-                return _lyc;
-            } else {
-                _lyc = data;
-            }
+            return _lyc;
         } else if (addr == 0xFF47) {
             // BG Palette Data
-            if (data == null) {
-                return _bgp;
-            } else {
-                _bgp = data;
-            }
-        } else if (addr < 0xFF4A) {
-            // OBJ Palette Data
-            if (data == null) {
-                return (addr == 0xFF49) ? _obp1 : _obp0;
-            } else {
-                if (addr == 0xFF49) {
-                    _obp1 = data;
-                } else {
-                    _obp0 = data;
-                }
-            }
+            return _bgp;
+        } else if (addr == 0xFF48) {
+            // OBJ0 Palette Data
+            return _obp0;
+        } else if (addr == 0xFF49) {
+            // OBJ1 Palette Data
+            return _obp0;
         } else if (addr == 0xFF4A) {
             // Window Y Pos
-            if (data == null) {
-                return _wy;
-            } else {
-                _wy = data;
-            }
+            return _wy;
         } else if (addr == 0xFF4B) {
             // Window X Pos
-            if (data == null) {
-                return _wx - 7;
-            } else {
-                _wx = data + 7;
-            }
+            return _wx - 7;
         }
         return 0xFF;
+    }
+
+    function busWrite(addr as Number, data as Number) as Void {
+        if (addr < 0xA000) {
+            // VRAM
+            _vram[addr - 0x8000] = data;
+        } else if (addr < 0xFEA0) {
+            // OAM
+            _oam[addr - 0xFE00] = data;
+        } else if (addr == 0xFF40) {
+            // LCD Control
+            if ((data & LCDCBIT_LCD_EN) == 0) {
+                // Reset PPU if disabled
+                _ppuMode = PPUMODE_OAM_SCAN;
+                _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                _ly = 0;
+            }
+            _lcdc = data;
+        } else if (addr == 0xFF41) {
+            // LCD Status
+            _stat = data;
+        } else if (addr == 0xFF42) {
+            // Background Viewport Y
+            _scy = data;
+        } else if (addr == 0xFF43) {
+            // Background Viewport X
+            _scx = data;
+        } else if (addr == 0xFF45) {
+            // LY Compare
+            _lyc = data;
+        } else if (addr == 0xFF47) {
+            // BG Palette Data
+            _bgp = data;
+        } else if (addr == 0xFF48) {
+            // OBJ0 Palette Data
+            _obp0 = data;
+        } else if (addr == 0xFF49) {
+            // OBJ1 Palette Data
+            _obp1 = data;
+        } else if (addr == 0xFF4A) {
+            // Window Y Pos
+            _wy = data;
+        } else if (addr == 0xFF4B) {
+            // Window X Pos
+            _wx = data + 7;
+        }
     }
 }

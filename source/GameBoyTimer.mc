@@ -31,38 +31,37 @@ class GameBoyTimer {
         }
     }
 
-    function busRequest(addr as Number, data as Number?) as Number {
+    function busRead(addr as Number) as Number {
         if (addr == 0xFF04) {
             // DIV
-            if (data == null) {
-                return _systemCounter >> 6;
-            } else {
-                _systemCounter = 0;
-            }
+            return _systemCounter >> 6;
         } else if (addr == 0xFF05) {
             // TIMA
-            if (data == null) {
-                return _tima;
-            } else {
-                _tima = data;
-            }
+            return _tima;
         } else if (addr == 0xFF06) {
             // TMA
-            if (data == null) {
-                return _tma;
-            } else {
-                _tma = data;
-            }
+            return _tma;
         } else if (addr == 0xFF07) {
             // TAC
-            if (data == null) {
-                return (_enable << 2) | _clockSelect;
-            } else {
-                _clockSelect = data & 0x3;
-                _enable = (data >> 2) & 0x1;
-            }
+            return (_enable << 2) | _clockSelect;
         }
-
         return 0xFF;
+    }
+
+    function busWrite(addr as Number, data as Number) as Void {
+        if (addr == 0xFF04) {
+            // DIV
+            _systemCounter = 0;
+        } else if (addr == 0xFF05) {
+            // TIMA
+            _tima = data;
+        } else if (addr == 0xFF06) {
+            // TMA
+            _tma = data;
+        } else if (addr == 0xFF07) {
+            // TAC
+            _clockSelect = data & 0x3;
+            _enable = (data >> 2) & 0x1;
+        }
     }
 }

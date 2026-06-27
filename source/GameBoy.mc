@@ -3,8 +3,9 @@ import Toybox.Graphics;
 import Toybox.System;
 import Toybox.Timer;
 
-// data is null for read, otherwise it's a write
-typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
+typedef GBBusRead as Method(addr as Number) as Number;
+typedef GBBusWrite as Method(addr as Number, data as Number) as Void;
+typedef GBClockCycle as Method(mCycles as Number) as Void;
 
 const DEBUG_MODE as Boolean = false;
 const START_MCPC as Number = 1000;
@@ -32,7 +33,7 @@ class GameBoy {
     private var _mCyclePerCycle as Number = START_MCPC;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
-        _cpu = new GameBoyCPU(data, method(:busRequest));
+        _cpu = new GameBoyCPU(data, method(:busRead), method(:busWrite), method(:cycleMClock));
         _timer = new GameBoyTimer((_cpu as GameBoyCPU).method(:sendInt));
         _ppu = new GameBoyPPU((_cpu as GameBoyCPU).method(:sendInt), method(:ppuFrameDone));
         _eventCB.invoke(EVENT_READY);
@@ -42,68 +43,77 @@ class GameBoy {
         _eventCB.invoke(EVENT_FRAME_DONE);
     }
 
-    function busRequest(addr as Number, data as Number?) as Number {
-        if (addr < 0x8000 && data == null) {
+    function busRead(addr as Number) as Number {
+        if (addr < 0x8000 && _cart != null) {
             // ROM
-            if (_cart != null) {
-                return _cart.readByte(addr);
-            }
+            return _cart.readByte(addr);
         } else if (addr < 0xA000) {
             // VRAM
-            return 0xFF;
+            return (_ppu as GameBoyPPU).busRead(addr);
         } else if (addr < 0xC000) {
             // External Ram
             return 0xFF;
         } else if (addr < 0xD000) {
             // WRAM
-            if (data == null) {
-                return _wram[addr - 0xC000];
-            } else {
-                _wram[addr - 0xC000] = data;
-            }
+            return _wram[addr - 0xC000];
         } else if (addr < 0xFE00) {
             // Echo WRAM
-            if (data == null) {
-                return _wram[addr - 0xE000];
-            } else {
-                _wram[addr - 0xE000] = data;
-            }
+            return _wram[addr - 0xE000];
         } else if (addr < 0xFEA0) {
             // OAM
-            return (_ppu as GameBoyPPU).busRequest(addr, data);
+            return (_ppu as GameBoyPPU).busRead(addr, data);
         } else if (addr == 0xFF00) {
             // Joypad Input
-            if (data == null) {
-                return _joyp;
-            } else {
-                _joyp = (_joyp & 0x0F) | (data & 0x30);
-            }
+            return _joyp;
         } else if (addr < 0xFF03) {
             // Serial Transfer
             return 0xFF;
         } else if (addr < 0xFF08) {
             // Timer registers
-            return (_timer as GameBoyTimer).busRequest(addr, data);
+            return (_timer as GameBoyTimer).busRead(addr);
         } else if (addr < 0xFF40) {
             // Audio (dummied out by acting as normal ram)
-            if (data == null) {
-                return _dummyAudio[addr - 0xFF10];
-            } else {
-                _dummyAudio[addr - 0xFF10] = data;
-            }
+            return _dummyAudio[addr - 0xFF10];
         } else if (addr < 0xFF4C) {
             // LCD
-            return (_ppu as GameBoyPPU).busRequest(addr, data);
-        } else if (addr == 0xFF46 && data != null) {
+            return (_ppu as GameBoyPPU).busRead(addr);
+        }
+        return 0xFF;
+    }
+
+    function busWrite(addr as Number, data as Number) as Void {
+        if (addr < 0xA000) {
+            // VRAM
+            (_ppu as GameBoyPPU).busWrite(addr, data);
+        } else if (addr < 0xD000) {
+            // WRAM
+            _wram[addr - 0xC000] = data;
+        } else if (addr < 0xFE00) {
+            // Echo WRAM
+            _wram[addr - 0xE000] = data;
+        } else if (addr < 0xFEA0) {
+            // OAM
+            (_ppu as GameBoyPPU).busWrite(addr, data);
+        } else if (addr == 0xFF00) {
+            // Joypad Input
+            _joyp = (_joyp & 0x0F) | (data & 0x30);
+        } else if (addr < 0xFF08) {
+            // Timer registers
+            (_timer as GameBoyTimer).busWrite(addr, data);
+        } else if (addr < 0xFF40) {
+            // Audio (dummied out by acting as normal ram)
+            _dummyAudio[addr - 0xFF10] = data;
+        } else if (addr < 0xFF4C) {
+            // LCD
+            (_ppu as GameBoyPPU).busWrite(addr, data);
+        } else if (addr == 0xFF46) {
             // OAM DMA
             var src = data << 8;
             for (var dest = 0xFE00; dest < 0xFEA0; dest++) {
-                busRequest(dest, busRequest(src, null));
+                (_ppu as GameBoyPPU).busWrite(dest, busRead(src));
                 src++;
             }
         }
-
-        return 0xFF;
     }
 
     function emuCycle() as Void {
@@ -125,6 +135,10 @@ class GameBoy {
         ));
     }
 
+    function cycleMClock(mCycles as Number) as Void {
+        (_timer as GameBoyTimer).step(mCycles);
+        (_ppu as GameBoyPPU).step(mCycles);
+    }
 
     function initialize(bootRomServer as String, eventCB as Method(Event) as Void) {
         _eventCB = eventCB;
@@ -148,13 +162,6 @@ class GameBoy {
 
     function stop() as Void {
         _mainTimer.stop();
-    }
-
-    function step() as Number {
-        var mCycles = (_cpu as GameBoyCPU).step();
-        (_timer as GameBoyTimer).step(mCycles);
-        (_ppu as GameBoyPPU).step(mCycles);
-        return mCycles;
     }
 
     function getFrame() as BufferedBitmap {
