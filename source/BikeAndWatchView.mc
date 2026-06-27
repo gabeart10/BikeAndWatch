@@ -1,12 +1,10 @@
 import Toybox.Lang;
-import Toybox.Timer;
 import Toybox.Graphics;
 import Toybox.WatchUi;
 
 class BikeAndWatchView extends WatchUi.View {
     private var _gb as GameBoy = new GameBoy("http://127.0.0.1:5000", method(:gbEventHandler));
     private var _drawFrame as Boolean = false;
-    private var _mainTimer as Timer.Timer = new Timer.Timer();
 
     function initialize() {
         View.initialize();
@@ -40,26 +38,15 @@ class BikeAndWatchView extends WatchUi.View {
     function onHide() as Void {
     }
 
-    function emuCycle() as Void {
-        // Run until we finish a frame
-        for (var i = 0; i < 2000; i++) {
-            _gb.step();
-        }
-
-        if (_drawFrame) {
-            // Draw Frame
-            requestUpdate();
-        }
-    }
-
     function gbEventHandler(event as GameBoy.Event) as Void {
         switch (event) {
             case GameBoy.EVENT_READY: {
-                _mainTimer.start(method(:emuCycle), 200, true);
+                _gb.start();
             } break;
             
             case GameBoy.EVENT_FRAME_DONE: {
                 _drawFrame = true;
+                requestUpdate();
             } break;
         }
     }

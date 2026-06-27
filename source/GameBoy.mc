@@ -1,9 +1,13 @@
 import Toybox.Lang;
 import Toybox.Graphics;
 import Toybox.System;
+import Toybox.Timer;
 
 // data is null for read, otherwise it's a write
 typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
+
+const TARGET_MCPS as Number = 20000;
+const EMU_CYCLE_MS as Number = 200;
 
 class GameBoy {
     enum Event {
@@ -16,12 +20,11 @@ class GameBoy {
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
     private var _wram as ByteArray = new[4096]b;
-    private var _dummyAudio as ByteArray = new[22]b;
+    private var _dummyAudio as ByteArray = new[23]b;
     private var _bootRomRequest as ExternalDataRequester;
     private var _eventCB as Method(Event) as Void;
-
+    private var _mainTimer as Timer.Timer = new Timer.Timer();
     private var _lastTime as Number = 0;
-    private var _cycleCount as Number = 0;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
@@ -94,6 +97,23 @@ class GameBoy {
         return 0xFF;
     }
 
+    function emuCycle() as Void {
+        var cycleCount = 0;
+        var startTime = System.getTimer();
+        var waitTimeDelta = startTime - _lastTime; 
+        while (cycleCount < ((TARGET_MCPS * EMU_CYCLE_MS) / 1000)) {
+            cycleCount += step();
+        }
+        _lastTime = System.getTimer();
+
+        var exeTimeDelta = _lastTime - startTime;
+        var speed = (cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
+        System.println(format("Wait Time: $1$ms | Utilization: $2$% | $3$ MCycle/sec", 
+            [waitTimeDelta.format("%d"), ((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
+        ));
+    }
+
+
     function initialize(bootRomServer as String, eventCB as Method(Event) as Void) {
         _eventCB = eventCB;
         _bootRomRequest = new ExternalDataRequester(bootRomServer, method(:bootRomReady));
@@ -109,19 +129,20 @@ class GameBoy {
         _cart = cart;
     }
 
-    function step() as Void {
+    function start() as Void {
+        _lastTime = System.getTimer();
+        _mainTimer.start(method(:emuCycle), EMU_CYCLE_MS, true);
+    }
+
+    function stop() as Void {
+        _mainTimer.stop();
+    }
+
+    function step() as Number {
         var mCycles = (_cpu as GameBoyCPU).step();
         (_timer as GameBoyTimer).step(mCycles);
         (_ppu as GameBoyPPU).step(mCycles);
-
-        _cycleCount += mCycles;
-        if (_cycleCount >= 500) {
-            var curTime = System.getTimer();
-            var speed = (_cycleCount as Float) / (((curTime - _lastTime) as Float) / 1000f);
-            System.println(speed.format("%f") + " MCycle/sec");
-            _lastTime = curTime;
-            _cycleCount = 0;
-        }
+        return mCycles;
     }
 
     function getFrame() as BufferedBitmap {
