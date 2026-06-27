@@ -6,7 +6,9 @@ import Toybox.Timer;
 // data is null for read, otherwise it's a write
 typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
 
-const TARGET_MCPS as Number = 20000;
+const START_MCPC as Number = 1000;
+const TARGET_EXEC_TIME_MS as Number = 200;
+const CYCLE_PER_MS_ADJUST as Number = 8;
 const EMU_CYCLE_MS as Number = 200;
 
 class GameBoy {
@@ -25,6 +27,7 @@ class GameBoy {
     private var _eventCB as Method(Event) as Void;
     private var _mainTimer as Timer.Timer = new Timer.Timer();
     private var _lastTime as Number = 0;
+    private var _mCyclePerCycle as Number = START_MCPC;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
@@ -101,13 +104,14 @@ class GameBoy {
         var cycleCount = 0;
         var startTime = System.getTimer();
         var waitTimeDelta = startTime - _lastTime; 
-        while (cycleCount < ((TARGET_MCPS * EMU_CYCLE_MS) / 1000)) {
+        while (cycleCount < _mCyclePerCycle) {
             cycleCount += step();
         }
         _lastTime = System.getTimer();
 
         var exeTimeDelta = _lastTime - startTime;
         var speed = (cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
+        _mCyclePerCycle += (TARGET_EXEC_TIME_MS - exeTimeDelta) * CYCLE_PER_MS_ADJUST;
         System.println(format("Wait Time: $1$ms | Utilization: $2$% | $3$ MCycle/sec", 
             [waitTimeDelta.format("%d"), ((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
         ));

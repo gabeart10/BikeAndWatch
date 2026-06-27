@@ -9,7 +9,8 @@
             "request": "launch",
             "name": "Run App",
             "stopAtLaunch": false,
-            "device": "${command:GetTargetDevice}"
+            "device": "${command:GetTargetDevice}",
+            "preLaunchTask": "monkeyc: edge1050"
         }
     ]
 }
