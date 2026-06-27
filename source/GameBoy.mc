@@ -6,8 +6,9 @@ import Toybox.Timer;
 // data is null for read, otherwise it's a write
 typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
 
+const DEBUG_MODE as Boolean = false;
 const START_MCPC as Number = 1000;
-const TARGET_EXEC_TIME_MS as Number = 200;
+const TARGET_EXEC_TIME_MS as Number = 190;
 const CYCLE_PER_MS_ADJUST as Number = 8;
 const EMU_CYCLE_MS as Number = 200;
 
@@ -23,6 +24,7 @@ class GameBoy {
     private var _ppu as GameBoyPPU?;
     private var _wram as ByteArray = new[4096]b;
     private var _dummyAudio as ByteArray = new[23]b;
+    private var _joyp as Number = 0x0F;
     private var _bootRomRequest as ExternalDataRequester;
     private var _eventCB as Method(Event) as Void;
     private var _mainTimer as Timer.Timer = new Timer.Timer();
@@ -71,7 +73,11 @@ class GameBoy {
             return (_ppu as GameBoyPPU).busRequest(addr, data);
         } else if (addr == 0xFF00) {
             // Joypad Input
-            return 0xFF;
+            if (data == null) {
+                return _joyp;
+            } else {
+                _joyp = (_joyp & 0x0F) | (data & 0x30);
+            }
         } else if (addr < 0xFF03) {
             // Serial Transfer
             return 0xFF;
@@ -111,7 +117,9 @@ class GameBoy {
 
         var exeTimeDelta = _lastTime - startTime;
         var speed = (cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
-        _mCyclePerCycle += (TARGET_EXEC_TIME_MS - exeTimeDelta) * CYCLE_PER_MS_ADJUST;
+        if (!DEBUG_MODE) {
+            _mCyclePerCycle += (TARGET_EXEC_TIME_MS - exeTimeDelta) * CYCLE_PER_MS_ADJUST;
+        }
         System.println(format("Wait Time: $1$ms | Utilization: $2$% | $3$ MCycle/sec", 
             [waitTimeDelta.format("%d"), ((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
         ));
