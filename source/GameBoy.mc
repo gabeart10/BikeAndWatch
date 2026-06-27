@@ -1,24 +1,37 @@
 import Toybox.Lang;
+import Toybox.Graphics;
+import Toybox.System;
 
 // data is null for read, otherwise it's a write
 typedef GBBusRequestFunc as Method(addr as Number, data as Number?) as Number;
 
 class GameBoy {
+    enum Event {
+        EVENT_READY,
+        EVENT_FRAME_DONE
+    }
+
     private var _cart as GameCart?;
     private var _cpu as GameBoyCPU?;
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
-    private var _wram as ByteArray = new ByteArray();
-    private var _dummyAudio as ByteArray = new ByteArray();
+    private var _wram as ByteArray = new[4096]b;
+    private var _dummyAudio as ByteArray = new[22]b;
     private var _bootRomRequest as ExternalDataRequester;
+    private var _eventCB as Method(Event) as Void;
+
+    private var _lastTime as Number = 0;
+    private var _cycleCount as Number = 0;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRequest));
         _timer = new GameBoyTimer((_cpu as GameBoyCPU).method(:sendInt));
-        _ppu = new GameBoyPPU((_cpu as GameBoyCPU).method(:sendInt));
-        for (var n = 0; n < 100; n++) {
-            (_cpu as GameBoyCPU).step();
-        }
+        _ppu = new GameBoyPPU((_cpu as GameBoyCPU).method(:sendInt), method(:ppuFrameDone));
+        _eventCB.invoke(EVENT_READY);
+    }
+
+    function ppuFrameDone() as Void {
+        _eventCB.invoke(EVENT_FRAME_DONE);
     }
 
     function busRequest(addr as Number, data as Number?) as Number {
@@ -81,18 +94,14 @@ class GameBoy {
         return 0xFF;
     }
 
-    function initialize(bootRomServer as String) {
+    function initialize(bootRomServer as String, eventCB as Method(Event) as Void) {
+        _eventCB = eventCB;
         _bootRomRequest = new ExternalDataRequester(bootRomServer, method(:bootRomReady));
-        _bootRomRequest.getData("/boot-rom");
+    }
 
-        // Fill WRAM
-        for (var i = 0; i < 4096; i++) {
-            _wram.add(0);
-        }
-
-        // Fill Dummy Audio
-        for (var i = 0; i < 22; i++) {
-            _dummyAudio.add(0);
+    function initSystem() as Void {
+        if (_cpu == null) {
+            _bootRomRequest.getData("/boot-rom");
         }
     }
 
@@ -100,10 +109,22 @@ class GameBoy {
         _cart = cart;
     }
 
-    function switchOn() as Void {
-        if (_cpu == null) {
-            throw new Lang.Exception(); // TODO: Make Custom Exception
-        }
+    function step() as Void {
+        var mCycles = (_cpu as GameBoyCPU).step();
+        (_timer as GameBoyTimer).step(mCycles);
+        (_ppu as GameBoyPPU).step(mCycles);
 
+        _cycleCount += mCycles;
+        if (_cycleCount >= 500) {
+            var curTime = System.getTimer();
+            var speed = (_cycleCount as Float) / (((curTime - _lastTime) as Float) / 1000f);
+            System.println(speed.format("%f") + " MCycle/sec");
+            _lastTime = curTime;
+            _cycleCount = 0;
+        }
     }
+
+    function getFrame() as BufferedBitmap {
+        return (_ppu as GameBoyPPU).getBitmap();
+    } 
 }

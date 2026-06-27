@@ -44,11 +44,12 @@ class GameBoyPPU {
         OBJATTRBIT_PRIORITY = 0x80
     }
 
+    private var _frameDoneCB as Method() as Void;
     private var _sendCPUInt as GBCPUSendIntFunc;
     private var _bitmap as BufferedBitmap;
     private var _prevIntState as Boolean = false;
-    private var _vram as ByteArray = new ByteArray();
-    private var _oam as ByteArray = new ByteArray();
+    private var _vram as ByteArray = new[8192]b;
+    private var _oam as ByteArray = new[160]b;
     private var _lcdc as Number = 0; // LCD Control
     private var _ly as Number = 0; // LCD Y Cord
     private var _lyc as Number = 0; // LY Compare
@@ -204,8 +205,9 @@ class GameBoyPPU {
         _prevIntState = triggered;
     }
 
-    function initialize(sendCPUInt as GBCPUSendIntFunc) {
+    function initialize(sendCPUInt as GBCPUSendIntFunc, frameDoneCB as Method() as Void) {
         _sendCPUInt = sendCPUInt;
+        _frameDoneCB = frameDoneCB;
         var bitmap = Graphics.createBufferedBitmap({
             :width => SCREEN_WIDTH,
             :height => SCREEN_HEIGHT
@@ -216,15 +218,6 @@ class GameBoyPPU {
         } else {
             // Failed to create PPU bitmap
             throw new Lang.Exception();
-        }
-
-        // Fill VRAM
-        for (var i = 0; i < 8192; i++) {
-            _vram.add(0);
-        }
-        // Fill OAM
-        for (var i = 0; i < 160; i++) {
-            _oam.add(0);
         }
     }
 
@@ -259,6 +252,7 @@ class GameBoyPPU {
                 case PPUMODE_HBLANK: {
                     _ly++;
                     if (_ly == SCREEN_HEIGHT) {
+                        _frameDoneCB.invoke();
                         _ppuMode = PPUMODE_VBLANK;
                         _ppuModeTick = PPUCYCLE_VBLANK;
                     } else {

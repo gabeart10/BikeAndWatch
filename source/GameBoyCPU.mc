@@ -32,7 +32,7 @@ class GameBoyCPU {
     }
 
     private var _bootRom as ByteArray?;
-    private var _hram as ByteArray = new ByteArray();
+    private var _hram as ByteArray = new[127]b;
     private var _busRequest as GBBusRequestFunc;
     private var _state as CPUState = CPU_STATE_RUNNING;
     private var _pc as Number = 0; // Program Counter
@@ -132,11 +132,6 @@ class GameBoyCPU {
     function initialize(bootRom as ByteArray, busRequest as GBBusRequestFunc) {
         _bootRom = bootRom;
         _busRequest = busRequest;
-
-        // Initalize HRAM
-        for (var i = 0; i < 127; i++) {
-            _hram.add(0);
-        }
     }
 
     function sendInt(int as IntSrc) as Void {
@@ -197,7 +192,22 @@ class GameBoyCPU {
             }
         }
 
-        System.println("PC: 0x" + _pc.format("%02X") + " Op: 0x" + opcode.format("%02X"));
+        // System.println(
+        //     "PC:0x" + _pc.format("%04X")
+        //     + " Op: 0x" + opcode.format("%02X")
+        //     + " SP:0x" + _sp.format("%04X")
+        //     + " A:0x" + _regs[REG_A].format("%02X")
+        //     + " B:0x" + _regs[REG_B].format("%02X")
+        //     + " C:0x" + _regs[REG_C].format("%02X")
+        //     + " D:0x" + _regs[REG_D].format("%02X")
+        //     + " E:0x" + _regs[REG_E].format("%02X")
+        //     + " H:0x" + _regs[REG_H].format("%02X")
+        //     + " L:0x" + _regs[REG_L].format("%02X")
+        //     + " Z:" + (_nZFlag == 0 ? "1" : "0")
+        //     + " N:" + (_NFlag != 0 ? "1" : "0")
+        //     + " H:" + (_HFlag != 0 ? "1" : "0")
+        //     + " C:" + (_CFlag != 0 ? "1" : "0")
+        // );
 
         switch (opcode) {
             // ========== Load Instructions ==========
