@@ -2,8 +2,25 @@ import Toybox.Lang;
 import Toybox.System;
 
 typedef GBCPUSendIntFunc as Method(int as GameBoyCPU.IntSrc) as Void;
+typedef GBCPUOp as Method(opcode as Number) as Void;
 
 class GameBoyCPU {
+    private enum CBOpcodeGroups {
+        CB_GROUP_ROT_SHIFT = 0,
+        CB_GROUP_BIT = 1,
+        CB_GROUP_RES = 2,
+        CB_GROUP_SET = 3,
+    }
+    private enum CBRotShiftType {
+        CB_ROT_SHIFT_TYPE_RLC = 0,
+        CB_ROT_SHIFT_TYPE_RRC = 1,
+        CB_ROT_SHIFT_TYPE_RL = 2,
+        CB_ROT_SHIFT_TYPE_RR = 3,
+        CB_ROT_SHIFT_TYPE_SLA = 4,
+        CB_ROT_SHIFT_TYPE_SRA = 5,
+        CB_ROT_SHIFT_TYPE_SWAP = 6,
+        CB_ROT_SHIFT_TYPE_SRL = 7,
+    }
     private enum RegistersEnum {
         REG_B = 0,
         REG_C = 1,
@@ -71,7 +88,6 @@ class GameBoyCPU {
         } else {
             return _extBusRead.invoke(addr);
         }
-        return 0xFF;
     }
 
     private function busWrite(addr as Number, data as Number) as Void {
@@ -149,13 +165,8 @@ class GameBoyCPU {
         _if |= (0x1 << int);
     }
 
-    function bootRomReady() as Boolean {
-        return _bootRom != null;
-    }
-
-    function step() as Number {
-        var mCycles = 1;
-        var opcode = OP_NOP;
+    function step() as Void {
+        var opcode = 0x00;
 
         // Check for Interrupt
         if (_ime && (_if & _ie) != 0) {
@@ -166,37 +177,39 @@ class GameBoyCPU {
                     // Clear Interrupt Flag
                     _if &= ~(0x1 << bit);
                     // Push PC to Stack
-                    _sp -= 1;
-                    cpuBusRequest(_sp, _pc >> 8);
-                    _sp -= 1;
-                    cpuBusRequest(_sp, _pc & 0xFF);
+                    _sp--;
+                    busWrite(_sp, _pc >> 8);
+                    _sp--;
+                    busWrite(_sp, _pc & 0xFF);
                     // Set PC to ISR
                     _pc = 0x40 + (bit * 0x8);
                     // Make sure state is correct and add delay
                     _state = CPU_STATE_RUNNING;
-                    mCycles += 4;
+                    _extClockCycle.invoke(3);
+                    break;
                 }
                 if_copy >>= 1;
             } 
         } else {
             switch (_state) {
                 case CPU_STATE_RUNNING: {
-                    opcode = cpuBusRequest(_pc, null);
-                    _pc += 1;
+                    opcode = busRead(_pc);
+                    _pc++;
                     break;
                 }
 
                 case CPU_STATE_START_HALT: 
                 case CPU_STATE_HALTED: {
                     if ((_if & _ie) != 0) {
-                        opcode = cpuBusRequest(_pc, null);
+                        opcode = busRead(_pc);
                         // Simulate HALT Bug
                         if (_state != CPU_STATE_START_HALT) {
-                            _pc += 1;
+                            _pc++;
                         }
                         _state = CPU_STATE_RUNNING;
                     } else {
                         _state = CPU_STATE_HALTED;
+                        _extClockCycle.invoke(1);
                     }
                     break;
                 }
@@ -220,983 +233,797 @@ class GameBoyCPU {
         //     + " C:" + (_CFlag != 0 ? "1" : "0")
         // );
 
-        switch (opcode) {
-            // ========== Load Instructions ==========
-            case OP_LD_A_A:
-            case OP_LD_A_B:
-            case OP_LD_A_C:
-            case OP_LD_A_D:
-            case OP_LD_A_E:
-            case OP_LD_A_H:
-            case OP_LD_A_L:
-            case OP_LD_B_B:
-            case OP_LD_B_C:
-            case OP_LD_B_D:
-            case OP_LD_B_E:
-            case OP_LD_B_H:
-            case OP_LD_B_L:
-            case OP_LD_B_A:
-            case OP_LD_C_B:
-            case OP_LD_C_C:
-            case OP_LD_C_D:
-            case OP_LD_C_E:
-            case OP_LD_C_H:
-            case OP_LD_C_L:
-            case OP_LD_C_A:
-            case OP_LD_D_B:
-            case OP_LD_D_C:
-            case OP_LD_D_D:
-            case OP_LD_D_E:
-            case OP_LD_D_H:
-            case OP_LD_D_L:
-            case OP_LD_D_A:
-            case OP_LD_E_B:
-            case OP_LD_E_C:
-            case OP_LD_E_D:
-            case OP_LD_E_E:
-            case OP_LD_E_H:
-            case OP_LD_E_L:
-            case OP_LD_E_A:
-            case OP_LD_H_B:
-            case OP_LD_H_C:
-            case OP_LD_H_D:
-            case OP_LD_H_E:
-            case OP_LD_H_H:
-            case OP_LD_H_L:
-            case OP_LD_H_A:
-            case OP_LD_L_B:
-            case OP_LD_L_C:
-            case OP_LD_L_D:
-            case OP_LD_L_E:
-            case OP_LD_L_H:
-            case OP_LD_L_L:
-            case OP_LD_L_A: {
-                _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
-                break;
-            }
+        _opLookup[opcode].invoke(opcode);
 
-            case OP_LD_B_u8:
-            case OP_LD_C_u8:
-            case OP_LD_D_u8:
-            case OP_LD_E_u8:
-            case OP_LD_H_u8:
-            case OP_LD_L_u8:
-            case OP_LD_A_u8: {
-                _regs[(opcode >> 3) & 0x07] = cpuBusRequest(_pc, null);
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_A_HLptr:
-            case OP_LD_B_HLptr:
-            case OP_LD_C_HLptr:
-            case OP_LD_D_HLptr:
-            case OP_LD_E_HLptr:
-            case OP_LD_H_HLptr:
-            case OP_LD_L_HLptr: {
-                _regs[(opcode >> 3) & 0x07] = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_HLptr_A:
-            case OP_LD_HLptr_B:
-            case OP_LD_HLptr_C:
-            case OP_LD_HLptr_D:
-            case OP_LD_HLptr_E:
-            case OP_LD_HLptr_H:
-            case OP_LD_HLptr_L: {
-                cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_HLptr_u8: {
-                cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], cpuBusRequest(_pc, null));
-                _pc += 1;
-                mCycles += 2;
-                break;
-            }
-
-            case OP_LD_A_BCptr: {
-                _regs[REG_A] = cpuBusRequest((_regs[REG_B] << 8) | _regs[REG_C], null);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_A_DEptr: {
-                _regs[REG_A] = cpuBusRequest((_regs[REG_D] << 8) | _regs[REG_E], null);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_BCptr_A: {
-                cpuBusRequest((_regs[REG_B] << 8) | _regs[REG_C], _regs[REG_A]);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_DEptr_A: {
-                cpuBusRequest((_regs[REG_D] << 8) | _regs[REG_E], _regs[REG_A]);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_A_u16ptr: {
-                var addr = cpuBusRequest(_pc, null) | (cpuBusRequest(_pc + 1, null) << 8);
-                _regs[REG_A] = cpuBusRequest(addr, null);
-                _pc += 2;
-                mCycles += 3;
-                break;
-            }
-
-            case OP_LD_u16ptr_A: {
-                var addr = cpuBusRequest(_pc, null) | (cpuBusRequest(_pc + 1, null) << 8);
-                cpuBusRequest(addr, _regs[REG_A]);
-                _pc += 2;
-                mCycles += 3;
-                break;
-            }
-
-            case OP_LD_A_Cptr: {
-                _regs[REG_A] = cpuBusRequest(0xFF00 | _regs[REG_C], null);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_Cptr_A: {
-                cpuBusRequest(0xFF00 | _regs[REG_C], _regs[REG_A]);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LDH_A_u8ptr: {
-                _regs[REG_A] = cpuBusRequest(0xFF00 | cpuBusRequest(_pc, null), null);
-                _pc += 1;
-                mCycles += 2;
-                break;
-            }
-            
-            case OP_LDH_u8ptr_A: {
-                cpuBusRequest(0xFF00 | cpuBusRequest(_pc, null), _regs[REG_A]);
-                _pc += 1;
-                mCycles += 2;
-                break;
-            }
-
-            case OP_LDI_A_HL:
-            case OP_LDD_A_HL: {
-                var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-                _regs[REG_A] = cpuBusRequest(hl, null);
-                if (opcode == OP_LDI_A_HL) {
-                    hl += 1;
-                } else {
-                    hl -= 1;
-                }
-                _regs[REG_H] = (hl >> 8) & 0xFF;
-                _regs[REG_L] = hl & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LDI_HL_A:
-            case OP_LDD_HL_A: {
-                var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-                cpuBusRequest(hl, _regs[REG_A]);
-                if (opcode == OP_LDI_HL_A) {
-                    hl += 1;
-                } else {
-                    hl -= 1;
-                }
-                _regs[REG_H] = (hl >> 8) & 0xFF;
-                _regs[REG_L] = hl & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-
-            case OP_LD_BC_u16:
-            case OP_LD_DE_u16:
-            case OP_LD_HL_u16:
-            case OP_LD_SP_u16: {
-                var value = cpuBusRequest(_pc, null) | (cpuBusRequest(_pc + 1, null) << 8);
-                set16BitReg(((opcode - OP_LD_BC_u16) >> 4) as RegistersEnum, value);
-                _pc += 2;
-                mCycles += 2;
-                break;
-            }
-
-            case OP_LD_u16ptr_SP: {
-                var addr = cpuBusRequest(_pc, null) | (cpuBusRequest(_pc + 1, null) << 8);
-                cpuBusRequest(addr, _sp & 0xFF);
-                cpuBusRequest(addr + 1, (_sp >> 8) & 0xFF);
-                _pc += 2;
-                mCycles += 4;
-                break;
-            }
-
-            case OP_LD_SP_HL: {
-                _sp = (_regs[REG_H] << 8) | _regs[REG_L];
-                mCycles += 1;
-                break;
-            }
-
-            case OP_LD_HL_SP_s8: {
-                var offset = (cpuBusRequest(_pc, null) << 24) >> 24; // Convert to 32 bit signed
-                var result = _sp + offset;
-                _regs[REG_H] = (result >> 8) & 0xFF;
-                _regs[REG_L] = result & 0xFF;
-
-                calcFlags(_sp, offset, result, 0, 0x10000);
-                _pc += 1;
-                mCycles += 2;
-                break;
-            } 
-
-            // ========== 8-bit Arithmetic Instructions ==========
-            case OP_ADD_A:
-            case OP_ADD_B:
-            case OP_ADD_C:
-            case OP_ADD_D:
-            case OP_ADD_E:
-            case OP_ADD_H:
-            case OP_ADD_L: {
-                var value = _regs[opcode & 0x07];
-                var result = _regs[REG_A] + value;
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                break;
-            }
-
-            case OP_ADD_HLptr: {
-                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                var result = _regs[REG_A] + value;
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_ADD_u8: {
-                var value = cpuBusRequest(_pc, null);
-                var result = _regs[REG_A] + value;
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_ADC_A:
-            case OP_ADC_B:
-            case OP_ADC_C:
-            case OP_ADC_D:
-            case OP_ADC_E:
-            case OP_ADC_H:
-            case OP_ADC_L: {
-                var value = _regs[opcode & 0x07];
-                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                break;
-            }
-
-            case OP_ADC_HLptr: {
-                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_ADC_u8: {
-                var value = cpuBusRequest(_pc, null);
-                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 0, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_SUB_A:
-            case OP_SUB_B:
-            case OP_SUB_C:
-            case OP_SUB_D:
-            case OP_SUB_E:
-            case OP_SUB_H:
-            case OP_SUB_L: {
-                var value = _regs[opcode & 0x07];
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                break;
-            }
-
-            case OP_SUB_HLptr: {
-                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_SUB_u8: {
-                var value = cpuBusRequest(_pc, null);
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_SBC_A:
-            case OP_SBC_B:
-            case OP_SBC_C:
-            case OP_SBC_D:
-            case OP_SBC_E:
-            case OP_SBC_H:
-            case OP_SBC_L: {
-                var value = _regs[opcode & 0x07];
-                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                break;
-            }
-
-            case OP_SBC_HLptr: {
-                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_SBC_u8: {
-                var value = cpuBusRequest(_pc, null);
-                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _regs[REG_A] = result & 0xFF;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_CP_A:
-            case OP_CP_B:
-            case OP_CP_C:
-            case OP_CP_D:
-            case OP_CP_E:
-            case OP_CP_H:
-            case OP_CP_L: {
-                var value = _regs[opcode & 0x07];
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                break;
-            }
-
-            case OP_CP_HLptr: {
-                var value = cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_CP_u8: {
-                var value = cpuBusRequest(_pc, null);
-                var result = _regs[REG_A] - value;
-                calcFlags(_regs[REG_A], value, result, 1, 0x100);
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_INC_A:
-            case OP_INC_B:
-            case OP_INC_C:
-            case OP_INC_D:
-            case OP_INC_E:
-            case OP_INC_H:
-            case OP_INC_L: {
-                var value = _regs[opcode & 0x07];
-                var result = value + 1;
-                _nZFlag = result;
-                _NFlag = 0;
-                _HFlag = (value ^ result) & 0x10;
-                _regs[opcode & 0x07] = result & 0xFF;
-                break;
-            }
-
-            case OP_INC_HLptr: {
-                var HL = (_regs[REG_H] << 8) | _regs[REG_L];
-                var value = cpuBusRequest(HL, null);
-                var result = value + 1;
-                _nZFlag = result;
-                _NFlag = 0;
-                _HFlag = (value ^ result) & 0x10;
-                cpuBusRequest(HL, result & 0xFF);
-                mCycles += 2;
-                break;
-            }
-
-            case OP_DEC_A:
-            case OP_DEC_B:
-            case OP_DEC_C:
-            case OP_DEC_D:
-            case OP_DEC_E:
-            case OP_DEC_H:
-            case OP_DEC_L: {
-                var value = _regs[opcode & 0x07];
-                var result = value - 1;
-                _nZFlag = result;
-                _NFlag = 0;
-                _HFlag = (value ^ result) & 0x10;
-                _regs[opcode & 0x07] = result & 0xFF;
-                break;
-            }
-
-            case OP_DEC_HLptr: {
-                var HL = (_regs[REG_H] << 8) | _regs[REG_L];
-                var value = cpuBusRequest(HL, null);
-                var result = value - 1;
-                _nZFlag = result;
-                _NFlag = 0;
-                _HFlag = (value ^ result) & 0x10;
-                cpuBusRequest(HL, result & 0xFF);
-                mCycles += 2;
-                break;
-            }
-
-            // ========== 16-bit Arithmetic Instructions ==========
-            case OP_INC_BC:
-            case OP_INC_DE:
-            case OP_INC_HL:
-            case OP_INC_SP: {
-                var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
-                set16BitReg(reg, get16BitReg(reg) + 1);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_DEC_BC:
-            case OP_DEC_DE:
-            case OP_DEC_HL:
-            case OP_DEC_SP: {
-                var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
-                set16BitReg(reg, get16BitReg(reg) - 1);
-                mCycles += 1;
-                break;
-            }
-
-            case OP_ADD_HL_BC:
-            case OP_ADD_HL_DE:
-            case OP_ADD_HL_HL:
-            case OP_ADD_HL_SP: {
-                var HL = get16BitReg(REG_HL);
-                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
-                var result = HL + reg;
-                set16BitReg(REG_HL, result);
-                _NFlag = 0;
-                _HFlag = (HL ^ reg ^ result) & 0x1000;
-                _CFlag = result & 0x10000;
-                mCycles += 1;
-                break;
-            }
-
-            // ========== Bitwise Logic Instructions ==========
-            case OP_AND_A:
-            case OP_AND_B:
-            case OP_AND_C:
-            case OP_AND_D:
-            case OP_AND_E:
-            case OP_AND_H:
-            case OP_AND_L: {
-                _regs[REG_A] &= _regs[opcode & 0x07];
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 1;
-                _CFlag = 0;
-                break;
-            }
-
-            case OP_AND_HLptr: {
-                _regs[REG_A] &= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 1;
-                _CFlag = 0;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_AND_u8: {
-                _regs[REG_A] &= cpuBusRequest(_pc, null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 1;
-                _CFlag = 0;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_XOR_A:
-            case OP_XOR_B:
-            case OP_XOR_C:
-            case OP_XOR_D:
-            case OP_XOR_E:
-            case OP_XOR_H:
-            case OP_XOR_L: {
-                _regs[REG_A] ^= _regs[opcode & 0x07];
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                break;
-            }
-
-            case OP_XOR_HLptr: {
-                _regs[REG_A] ^= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_XOR_u8: {
-                _regs[REG_A] ^= cpuBusRequest(_pc, null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_OR_A:
-            case OP_OR_B:
-            case OP_OR_C:
-            case OP_OR_D:
-            case OP_OR_E:
-            case OP_OR_H:
-            case OP_OR_L: {
-                _regs[REG_A] |= _regs[opcode & 0x07];
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                break;
-            }
-
-            case OP_OR_HLptr: {
-                _regs[REG_A] |= cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_OR_u8: {
-                _regs[REG_A] |= cpuBusRequest(_pc, null);
-                _nZFlag = _regs[REG_A];
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 0;
-                _pc += 1;
-                mCycles += 1;
-                break;
-            }
-
-            case OP_CPL: {
-                _regs[REG_A] = ~_regs[REG_A];
-                _NFlag = 1;
-                _HFlag = 1;
-                break;
-            }
-
-            // ========== Bit Shift Instructions ==========
-            case OP_RLCA: {
-                _CFlag = (_regs[REG_A] >> 7) & 0x1;
-                _regs[REG_A] = ((_regs[REG_A] << 1) | _CFlag) & 0xFF;
-                _nZFlag = 1;
-                _NFlag = 0;
-                _HFlag = 0;
-                break;
-            }
-
-            case OP_RRCA: {
-                _CFlag = _regs[REG_A] & 0x1;
-                _regs[REG_A] = (_regs[REG_A] >> 1) | (_CFlag << 7);
-                _nZFlag = 1;
-                _NFlag = 0;
-                _HFlag = 0;
-                break;
-            }
-
-            case OP_RLA: {
-                var oldCFlag = _CFlag;
-                _CFlag = (_regs[REG_A] >> 7) & 0x1;
-                _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
-                _nZFlag = 1;
-                _NFlag = 0;
-                _HFlag = 0;
-                break;
-            }
-
-            case OP_RRA: {
-                var oldCFlag = _CFlag;
-                _CFlag = _regs[REG_A] & 0x1;
-                _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
-                _nZFlag = 1;
-                _NFlag = 0;
-                _HFlag = 0;
-                break;
-            }
-
-            case OP_CB_OP: {
-                var cbOpcode = cpuBusRequest(_pc, null);
-                _pc += 1;
-                mCycles += doCBOP(cbOpcode);
-                break;
-            }
-
-            // ========== Jumps and Subroutine Instructions ==========
-            case OP_JP_u16: {
-                _pc = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
-                mCycles += 3;
-                break;
-            }
-
-            case OP_JP_HL: {
-                _pc = get16BitReg(REG_HL);
-                break;
-            }
-
-            case OP_JP_NZ_u16:
-            case OP_JP_Z_u16:
-            case OP_JP_NC_u16:
-            case OP_JP_C_u16: {
-                var cond = false;
-                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
-                var jmpAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
-                switch ((opcode >> 3) & 0x3) {
-                    case JUMP_COND_Z:
-                        cond = !_nZFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = _nZFlag;
-                        break;
-                    case JUMP_COND_C:
-                        cond = _CFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = !_CFlag;
-                        break;
-                }
-
-                if (cond) {
-                    _pc = jmpAddr;
-                    mCycles += 1;
-                } else {
-                    _pc += 2;
-                }
-                mCycles += 2;
-                break;
-            }
-
-            case OP_JR_s8: {
-                _pc = (_pc + 1 + ((cpuBusRequest(_pc, null) << 24) >> 24)) & 0xFFFF;
-                mCycles += 2;
-                break;
-            }
-
-            case OP_JR_NZ_s8:
-            case OP_JR_Z_s8:
-            case OP_JR_NC_s8:
-            case OP_JR_C_s8: {
-                var cond = false;
-                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
-                var offset = (cpuBusRequest(_pc, null) << 24) >> 24;
-                _pc += 1;
-                switch ((opcode >> 3) & 0x3) {
-                    case JUMP_COND_Z:
-                        cond = !_nZFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = _nZFlag;
-                        break;
-                    case JUMP_COND_C:
-                        cond = _CFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = !_CFlag;
-                        break;
-                }
-
-                if (cond) {
-                    _pc = (_pc + offset) & 0xFFFF;
-                    mCycles += 1;
-                }
-                mCycles += 1;
-                break;
-            }
-
-            case OP_CALL_u16: {
-                var callAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
-                _pc += 2;
-                _sp -= 1;
-                cpuBusRequest(_sp, _pc >> 8);
-                _sp -= 1;
-                cpuBusRequest(_sp, _pc & 0xFF);
-                _pc = callAddr;
-                mCycles += 5;
-            }
-
-            case OP_CALL_NZ_u16:
-            case OP_CALL_Z_u16:
-            case OP_CALL_NC_u16:
-            case OP_CALL_C_u16: {
-                var cond = false;
-                // TODO: Check if we can be slighly inaccurate and not do bus reads on not cond
-                var callAddr = (cpuBusRequest(_pc + 1, null) << 8) | cpuBusRequest(_pc, null);
-                _pc += 2;
-                switch ((opcode >> 3) & 0x3) {
-                    case JUMP_COND_Z:
-                        cond = !_nZFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = _nZFlag;
-                        break;
-                    case JUMP_COND_C:
-                        cond = _CFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = !_CFlag;
-                        break;
-                }
-
-                if (cond) {
-                    _sp -= 1;
-                    cpuBusRequest(_sp, _pc >> 8);
-                    _sp -= 1;
-                    cpuBusRequest(_sp, _pc & 0xFF);
-                    _pc = callAddr;
-                    mCycles += 3;
-                }
-                mCycles += 2;
-                break;
-            }
-
-
-            case OP_RETI:
-                _ime = true;
-            case OP_RET: {
-                _pc = cpuBusRequest(_sp, null);
-                _sp += 1;
-                _pc |= cpuBusRequest(_sp, null) << 8; 
-                _sp += 1;
-                mCycles += 3;
-                break;
-            }
-
-            case OP_RET_NZ:
-            case OP_RET_Z:
-            case OP_RET_NC:
-            case OP_RET_C: {
-                var cond = false;
-                switch ((opcode >> 3) & 0x3) {
-                    case JUMP_COND_Z:
-                        cond = !_nZFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = _nZFlag;
-                        break;
-                    case JUMP_COND_C:
-                        cond = _CFlag;
-                        break;
-                    case JUMP_COND_NZ:
-                        cond = !_CFlag;
-                        break;
-                }
-
-                if (cond) {
-                    _pc = cpuBusRequest(_sp, null);
-                    _sp += 1;
-                    _pc |= cpuBusRequest(_sp, null) << 8; 
-                    _sp += 1;
-                    mCycles += 3;
-                }
-                mCycles += 1;
-                break;
-            }
-
-            case OP_RST_00H:
-            case OP_RST_08H:
-            case OP_RST_10H:
-            case OP_RST_18H:
-            case OP_RST_20H:
-            case OP_RST_28H:
-            case OP_RST_30H:
-            case OP_RST_38H: {
-                _sp -= 1;
-                cpuBusRequest(_sp, _pc >> 8);
-                _sp -= 1;
-                cpuBusRequest(_sp, _pc & 0xFF);
-                _pc = opcode & 0x38;
-                mCycles += 3;
-            }
-
-            // ========== Carry Flag Instructions ==========
-            case OP_CCF: {
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = !_CFlag;
-                break;
-            }
-
-            case OP_SCF: {
-                _NFlag = 0;
-                _HFlag = 0;
-                _CFlag = 1;
-                break;
-            }
-
-            // ========== Stack Manipulation Instructions ==========
-            case OP_PUSH_BC:
-            case OP_PUSH_DE:
-            case OP_PUSH_HL: {
-                var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
-                _sp -= 1;
-                cpuBusRequest(_sp, pushData >> 8);
-                _sp -= 1;
-                cpuBusRequest(_sp, pushData & 0xFF);
-                mCycles += 3;
-            }
-
-            case OP_PUSH_AF: {
-                var pushData = _regs[REG_A] << 8;
-                pushData |= (!_nZFlag) ? 0x80 : 0x00;
-                pushData |= (_NFlag) ? 0x40 : 0x00;
-                pushData |= (_HFlag) ? 0x20 : 0x00;
-                pushData |= (_CFlag) ? 0x10 : 0x00;
-                _sp -= 1;
-                cpuBusRequest(_sp, pushData >> 8);
-                _sp -= 1;
-                cpuBusRequest(_sp, pushData & 0xFF);
-                mCycles += 3;
-            }
-
-            case OP_POP_BC:
-            case OP_POP_DE:
-            case OP_POP_HL: {
-                var popData = cpuBusRequest(_sp, null);
-                _sp += 1;
-                popData |= cpuBusRequest(_sp, null) << 8; 
-                _sp += 1;
-                set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
-                mCycles += 2;
-            }
-
-            case OP_POP_AF: {
-                var popData = cpuBusRequest(_sp, null);
-                _nZFlag = !(popData & 0x80);
-                _NFlag = popData & 0x40;
-                _HFlag = popData & 0x20;
-                _CFlag = popData & 0x10;
-                _sp += 1;
-                _regs[REG_A] = cpuBusRequest(_sp, null); 
-                _sp += 1;
-                mCycles += 2;
-            }
-
-            case OP_ADD_SP_s8: {
-                var offset = (cpuBusRequest(_pc, null) << 24) >> 24;
-                var result = _sp + offset;
-
-                _sp = result & 0xFFFF;
-                _nZFlag = 1;
-                _NFlag = 0;
-                _HFlag = (_sp ^ offset ^ result) & 0x10;
-                _CFlag = result & 0x100;
-
-                _pc += 1;
-                mCycles += 3;
-                break;
-            }
-
-            // ========== Interrupt-related Instructions ==========
-            case OP_DI: {
-                _ime = false;
-                _imeNext = false;
-                break;
-            }
-
-            case OP_EI: {
-                _imeNext = true;
-                break;
-            }
-
-            case OP_HALT: {
-                _state = CPU_STATE_START_HALT;
-                break;
-            }
-
-            // ========== Miscellaneous Instructions ==========
-            case OP_DAA: {
-                var adj = 0;
-                if ((_HFlag != 0) || ((_NFlag == 0) && ((_regs[REG_A] & 0xF) > 0x9))) {
-                    adj += 0x6;
-                }
-                if ((_CFlag != 0) || ((_NFlag == 0) && (_regs[REG_A] > 0x99))) {
-                    adj += 0x60;
-                    if (_NFlag == 0) {
-                        _CFlag = 1;
-                    }
-                }
-                if (_NFlag != 0) {
-                    _regs[REG_A] -= adj;
-                } else {
-                    _regs[REG_A] += adj;
-                }
-                break;
-            }
-
-            case OP_NOP: {
-                break;
-            }
-
-            // TODO: Implement STOP
-            case OP_STOP:
-            default:
-                throw new Lang.Exception(); // Opcode not implemented
-        }
-
-        if (_imeNext && opcode != OP_EI) {
+        // Don't process _imeNext if Op EI just ran
+        if (_imeNext && opcode != 0xFB) {
             _imeNext = false;
             _ime = true;
         }
-
-        return mCycles;
     }
 
-    // TODO: Look at if performance gains are worth converting this to one large switch
-    private function doCBOP(opcode as Number) as Number {
+    function op_ld_r_r(opcode as Number) as Void {
+        _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+    }
+
+    function op_ld_r_u8(opcode as Number) as Void {
+        _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+        _pc++;
+    }
+
+    function op_ld_r_HLptr(opcode as Number) as Void {
+        _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+    }
+
+    function op_ld_HLptr_r(opcode as Number) as Void {
+        busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+    }
+
+    function op_ld_HLptr_u8(opcode as Number) as Void {
+        busWrite((_regs[REG_H] << 8) | _regs[REG_L], busRead(_pc));
+        _pc++;
+    }
+
+    function op_ld_A_BCptr(opcode as Number) as Void {
+        _regs[REG_A] = busRead((_regs[REG_B] << 8) | _regs[REG_C]);
+    }
+
+    function op_ld_A_DEptr(opcode as Number) as Void {
+        _regs[REG_A] = busRead((_regs[REG_D] << 8) | _regs[REG_E]);
+    }
+
+    function op_ld_BCptr_A(opcode as Number) as Void {
+        busWrite((_regs[REG_B] << 8) | _regs[REG_C], _regs[REG_A]);
+    }
+
+    function op_ld_DEptr_A(opcode as Number) as Void {
+        busWrite((_regs[REG_D] << 8) | _regs[REG_E], _regs[REG_A]);
+    }
+
+    function op_ld_A_u16ptr(opcode as Number) as Void {
+        var addr = busRead(_pc);
+        _pc++;
+        addr |= busRead(_pc) << 8;
+        _pc++;
+        _regs[REG_A] = busRead(addr);
+    }
+
+    function op_ld_u16ptr_A(opcode as Number) as Void {
+        var addr = busRead(_pc);
+        _pc++;
+        addr |= busRead(_pc) << 8;
+        _pc++;
+        busWrite(addr, _regs[REG_A]);
+    }
+
+    function op_ld_A_Cptr(opcode as Number) as Void {
+        _regs[REG_A] = busRead(0xFF00 | _regs[REG_C]);
+    }
+
+    function op_ld_Cptr_A(opcode as Number) as Void {
+        busWrite(0xFF00 | _regs[REG_C], _regs[REG_A]);
+    }
+
+    function op_ld_A_u8ptr(opcode as Number) as Void {
+        _regs[REG_A] = busRead(0xFF00 | busRead(_pc));
+        _pc++;
+    }
+            
+    function op_ld_u8ptr_A(opcode as Number) as Void {
+        busWrite(0xFF00 | busRead(_pc), _regs[REG_A]);
+        _pc++;
+    }
+
+    function op_ldi_A_HL(opcode as Number) as Void {
+        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+        _regs[REG_A] = busRead(hl);
+        hl++;
+        _regs[REG_H] = (hl >> 8) & 0xFF;
+        _regs[REG_L] = hl & 0xFF;
+    }
+
+    function op_ldd_A_HL(opcode as Number) as Void {
+        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+        _regs[REG_A] = busRead(hl);
+        hl--;
+        _regs[REG_H] = (hl >> 8) & 0xFF;
+        _regs[REG_L] = hl & 0xFF;
+    }
+
+    function op_ldi_HL_A(opcode as Number) as Void {
+        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+        busWrite(hl, _regs[REG_A]);
+        hl++;
+        _regs[REG_H] = (hl >> 8) & 0xFF;
+        _regs[REG_L] = hl & 0xFF;
+    }
+
+    function op_ldd_HL_A(opcode as Number) as Void {
+        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+        busWrite(hl, _regs[REG_A]);
+        hl--;
+        _regs[REG_H] = (hl >> 8) & 0xFF;
+        _regs[REG_L] = hl & 0xFF;
+    }
+
+    function op_ld_rr_u16(opcode as Number) as Void {
+        var value = busRead(_pc);
+        _pc++;
+        value |= busRead(_pc) << 8;
+        _pc++;
+        set16BitReg((opcode >> 4) as RegistersEnum, value);
+    }
+
+    function op_ld_u16tr_SP(opcode as Number) as Void {
+        var addr = busRead(_pc);
+        _pc++;
+        addr |= busRead(_pc) << 8;
+        _pc++;
+        busWrite(addr, _sp & 0xFF);
+        busWrite(addr + 1, (_sp >> 8) & 0xFF);
+    }
+
+    function op_ld_SP_HL(opcode as Number) as Void {
+        _sp = (_regs[REG_H] << 8) | _regs[REG_L];
+        _extClockCycle.invoke(1);
+    }
+
+    function op_ld_HL_SP_s8(opcode as Number) as Void {
+        var offset = (busRead(_pc) << 24) >> 24; // Convert to 32 bit signed
+        var result = _sp + offset;
+        _regs[REG_H] = (result >> 8) & 0xFF;
+        _regs[REG_L] = result & 0xFF;
+
+        calcFlags(_sp, offset, result, 0, 0x10000);
+        _pc++;
+        _extClockCycle.invoke(1);
+    } 
+
+    function op_add_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = _regs[REG_A] + value;
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_add_HLptr(opcode as Number) as Void {
+        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        var result = _regs[REG_A] + value;
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_add_u8(opcode as Number) as Void {
+        var value = busRead(_pc);
+        var result = _regs[REG_A] + value;
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+        _pc++;
+    }
+
+    function op_adc_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_adc_HLptr(opcode as Number) as Void {
+        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_adc_u8(opcode as Number) as Void {
+        var value = busRead(_pc);
+        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 0, 0x100);
+        _regs[REG_A] = result & 0xFF;
+        _pc++;
+    }
+
+    function op_sub_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_sub_HLptr(opcode as Number) as Void {
+        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_sub_u8(opcode as Number) as Void {
+        var value = busRead(_pc);
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+        _pc++;
+    }
+
+    function op_sbc_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_sbc_HLptr(opcode as Number) as Void {
+        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+    }
+
+    function op_sbc_u8(opcode as Number) as Void {
+        var value = busRead(_pc);
+        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _regs[REG_A] = result & 0xFF;
+        _pc++;
+    }
+
+    function op_cp_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+    }
+
+    function op_cp_HLptr(opcode as Number) as Void {
+        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+    }
+
+    function op_cp_u8(opcode as Number) as Void {
+        var value = busRead(_pc);
+        var result = _regs[REG_A] - value;
+        calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        _pc++;
+    }
+
+    function op_inc_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = value + 1;
+        _nZFlag = result;
+        _NFlag = 0;
+        _HFlag = (value ^ result) & 0x10;
+        _regs[opcode & 0x07] = result & 0xFF;
+    }
+
+    function op_inc_HLptr(opcode as Number) as Void {
+        var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+        var value = busRead(HL);
+        var result = value + 1;
+        _nZFlag = result;
+        _NFlag = 0;
+        _HFlag = (value ^ result) & 0x10;
+        busWrite(HL, result & 0xFF);
+    }
+
+    function op_dec_r(opcode as Number) as Void {
+        var value = _regs[opcode & 0x07];
+        var result = value - 1;
+        _nZFlag = result;
+        _NFlag = 0;
+        _HFlag = (value ^ result) & 0x10;
+        _regs[opcode & 0x07] = result & 0xFF;
+    }
+
+    function op_dec_HLptr(opcode as Number) as Void {
+        var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+        var value = busRead(HL);
+        var result = value - 1;
+        _nZFlag = result;
+        _NFlag = 0;
+        _HFlag = (value ^ result) & 0x10;
+        busWrite(HL, result & 0xFF);
+    }
+
+    function op_inc_rr(opcode as Number) as Void {
+        var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+        set16BitReg(reg, get16BitReg(reg) + 1);
+        _extClockCycle.invoke(1);
+    }
+
+    function op_dec_rr(opcode as Number) as Void {
+        var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+        set16BitReg(reg, get16BitReg(reg) - 1);
+        _extClockCycle.invoke(1);
+    }
+
+    function op_add_HL_rr(opcode as Number) as Void {
+        var HL = get16BitReg(REG_HL);
+        var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+        var result = HL + reg;
+        set16BitReg(REG_HL, result);
+        _NFlag = 0;
+        _HFlag = (HL ^ reg ^ result) & 0x1000;
+        _CFlag = result & 0x10000;
+        _extClockCycle.invoke(1);
+    }
+
+    function op_and_r(opcode as Number) as Void {
+        _regs[REG_A] &= _regs[opcode & 0x07];
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 1;
+        _CFlag = 0;
+    }
+
+    function op_and_HLptr(opcode as Number) as Void {
+        _regs[REG_A] &= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 1;
+        _CFlag = 0;
+    }
+
+    function op_and_u8(opcode as Number) as Void {
+        _regs[REG_A] &= busRead(_pc);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 1;
+        _CFlag = 0;
+        _pc++;
+    }
+
+    function op_xor_r(opcode as Number) as Void {
+        _regs[REG_A] ^= _regs[opcode & 0x07];
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+    }
+
+    function op_xor_HLptr(opcode as Number) as Void {
+        _regs[REG_A] ^= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+    }
+
+    function op_xor_u8(opcode as Number) as Void {
+        _regs[REG_A] ^= busRead(_pc);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+        _pc++;
+    }
+
+    function op_or_r(opcode as Number) as Void {
+        _regs[REG_A] |= _regs[opcode & 0x07];
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+    }
+
+    function op_or_HLptr(opcode as Number) as Void {
+        _regs[REG_A] |= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+    }
+
+    function op_or_u8(opcode as Number) as Void {
+        _regs[REG_A] |= busRead(_pc);
+        _nZFlag = _regs[REG_A];
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 0;
+        _pc++;
+    }
+
+    function op_cpl(opcode as Number) as Void {
+        _regs[REG_A] = ~_regs[REG_A];
+        _NFlag = 1;
+        _HFlag = 1;
+    }
+
+    function op_rlca(opcode as Number) as Void {
+        _CFlag = (_regs[REG_A] >> 7) & 0x1;
+        _regs[REG_A] = ((_regs[REG_A] << 1) | _CFlag) & 0xFF;
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = 0;
+    }
+
+    function op_rrca(opcode as Number) as Void {
+        _CFlag = _regs[REG_A] & 0x1;
+        _regs[REG_A] = (_regs[REG_A] >> 1) | (_CFlag << 7);
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = 0;
+    }
+
+    function op_rla(opcode as Number) as Void {
+        var oldCFlag = _CFlag;
+        _CFlag = (_regs[REG_A] >> 7) & 0x1;
+        _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = 0;
+    }
+
+    function op_rra(opcode as Number) as Void {
+        var oldCFlag = _CFlag;
+        _CFlag = _regs[REG_A] & 0x1;
+        _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = 0;
+    }
+
+    function op_cb_op(opcode as Number) as Void {
+        opcode = busRead(_pc);
+        _pc++;
+        doCBOP(opcode);
+    }
+
+    function op_jp_u16(opcode as Number) as Void {
+        _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+        _extClockCycle.invoke(1);
+    }
+
+    function op_jp_hl(opcode as Number) as Void {
+        _pc = get16BitReg(REG_HL);
+    }
+
+    function op_jp_nz(opcode as Number) as Void {
+        if (_nZFlag) {
+            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_jp_z(opcode as Number) as Void {
+        if (!_nZFlag) {
+            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_jp_nc(opcode as Number) as Void {
+        if (!_CFlag) {
+            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_jp_c(opcode as Number) as Void {
+        if (_CFlag) {
+            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_jr_s8(opcode as Number) as Void {
+        _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+        _extClockCycle.invoke(1);
+    }
+
+    function op_jr_nz(opcode as Number) as Void {
+        if (_nZFlag) {
+            _pc = (_pc + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+        } else {
+            _pc++;
+        }
+        _extClockCycle.invoke(1);
+    }
+
+    function op_jr_z(opcode as Number) as Void {
+        if (!_nZFlag) {
+            _pc = (_pc + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+        } else {
+            _pc++;
+        }
+        _extClockCycle.invoke(1);
+    }
+
+    function op_jr_nc(opcode as Number) as Void {
+        if (!_CFlag) {
+            _pc = (_pc + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+        } else {
+            _pc++;
+        }
+        _extClockCycle.invoke(1);
+    }
+
+    function op_jr_c(opcode as Number) as Void {
+        if (_CFlag) {
+            _pc = (_pc + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+        } else {
+            _pc++;
+        }
+        _extClockCycle.invoke(1);
+    }
+
+    function op_call_u16(opcode as Number) as Void {
+        var callAddr = busRead(_pc);
+        _pc++;
+        callAddr |= busRead(_pc) << 8;
+        _pc++;
+        _sp--;
+        busWrite(_sp, _pc >> 8);
+        _sp--;
+        busWrite(_sp, _pc & 0xFF);
+        _pc = callAddr;
+        _extClockCycle.invoke(1);
+    }
+
+    function op_call_nz(opcode as Number) as Void {
+        if (_nZFlag) {
+            var callAddr = busRead(_pc);
+            _pc++;
+            callAddr |= busRead(_pc) << 8;
+            _pc++;
+            _sp--;
+            busWrite(_sp, _pc >> 8);
+            _sp--;
+            busWrite(_sp, _pc & 0xFF);
+            _pc = callAddr;
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_call_z(opcode as Number) as Void {
+        if (!_nZFlag) {
+            var callAddr = busRead(_pc);
+            _pc++;
+            callAddr |= busRead(_pc) << 8;
+            _pc++;
+            _sp--;
+            busWrite(_sp, _pc >> 8);
+            _sp--;
+            busWrite(_sp, _pc & 0xFF);
+            _pc = callAddr;
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_call_nc(opcode as Number) as Void {
+        if (!_CFlag) {
+            var callAddr = busRead(_pc);
+            _pc++;
+            callAddr |= busRead(_pc) << 8;
+            _pc++;
+            _sp--;
+            busWrite(_sp, _pc >> 8);
+            _sp--;
+            busWrite(_sp, _pc & 0xFF);
+            _pc = callAddr;
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+    function op_call_c(opcode as Number) as Void {
+        if (_CFlag) {
+            var callAddr = busRead(_pc);
+            _pc++;
+            callAddr |= busRead(_pc) << 8;
+            _pc++;
+            _sp--;
+            busWrite(_sp, _pc >> 8);
+            _sp--;
+            busWrite(_sp, _pc & 0xFF);
+            _pc = callAddr;
+            _extClockCycle.invoke(1);
+        } else {
+            _pc += 2;
+            _extClockCycle.invoke(2);
+        }
+    }
+
+
+    function op_ret_and_reti(opcode as Number) as Void {
+        if (opcode & 0x1) {
+            _ime = true;
+        }
+        _pc = busRead(_sp);
+        _sp += 1;
+        _pc |= busRead(_sp) << 8; 
+        _sp += 1;
+        _extClockCycle.invoke(1);
+    }
+
+    function op_ret_nz(opcode as Number) as Void {
+        if (_nZFlag) {
+            _pc = busRead(_sp);
+            _sp += 1;
+            _pc |= busRead(_sp) << 8; 
+            _sp += 1;
+            _extClockCycle.invoke(2);
+        } else {
+            _extClockCycle.invoke(1);
+        }
+    }
+
+    function op_ret_z(opcode as Number) as Void {
+        if (!_nZFlag) {
+            _pc = busRead(_sp);
+            _sp += 1;
+            _pc |= busRead(_sp) << 8; 
+            _sp += 1;
+            _extClockCycle.invoke(2);
+        } else {
+            _extClockCycle.invoke(1);
+        }
+    }
+
+    function op_ret_nc(opcode as Number) as Void {
+        if (!_CFlag) {
+            _pc = busRead(_sp);
+            _sp += 1;
+            _pc |= busRead(_sp) << 8; 
+            _sp += 1;
+            _extClockCycle.invoke(2);
+        } else {
+            _extClockCycle.invoke(1);
+        }
+    }
+
+    function op_ret_c(opcode as Number) as Void {
+        if (_CFlag) {
+            _pc = busRead(_sp);
+            _sp += 1;
+            _pc |= busRead(_sp) << 8; 
+            _sp += 1;
+            _extClockCycle.invoke(2);
+        } else {
+            _extClockCycle.invoke(1);
+        }
+    }
+
+    function op_rst(opcode as Number) as Void {
+        _sp -= 1;
+        busWrite(_sp, _pc >> 8);
+        _sp -= 1;
+        busWrite(_sp, _pc & 0xFF);
+        _pc = opcode & 0x38;
+        _extClockCycle.invoke(1);
+    }
+
+    function op_ccf(opcode as Number) as Void {
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = !_CFlag;
+    }
+
+    function op_scf(opcode as Number) as Void {
+        _NFlag = 0;
+        _HFlag = 0;
+        _CFlag = 1;
+    }
+
+    function op_push_rr(opcode as Number) as Void {
+        var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+        _sp -= 1;
+        busWrite(_sp, pushData >> 8);
+        _sp -= 1;
+        busWrite(_sp, pushData & 0xFF);
+        _extClockCycle.invoke(1);
+    }
+
+    function op_push_AF(opcode as Number) as Void {
+        var pushData = _regs[REG_A] << 8;
+        pushData |= (!_nZFlag) ? 0x80 : 0x00;
+        pushData |= (_NFlag) ? 0x40 : 0x00;
+        pushData |= (_HFlag) ? 0x20 : 0x00;
+        pushData |= (_CFlag) ? 0x10 : 0x00;
+        _sp -= 1;
+        busWrite(_sp, pushData >> 8);
+        _sp -= 1;
+        busWrite(_sp, pushData & 0xFF);
+        _extClockCycle.invoke(1);
+    }
+
+    function op_pop_rr(opcode as Number) as Void {
+        var popData = busRead(_sp);
+        _sp += 1;
+        popData |= busRead(_sp) << 8; 
+        _sp += 1;
+        set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+    }
+
+    function op_pop_AF(opcode as Number) as Void {
+        var popData = busRead(_sp);
+        _nZFlag = !(popData & 0x80);
+        _NFlag = popData & 0x40;
+        _HFlag = popData & 0x20;
+        _CFlag = popData & 0x10;
+        _sp += 1;
+        _regs[REG_A] = busRead(_sp); 
+        _sp += 1;
+    }
+
+    function op_add_SP_s8(opcode as Number) as Void {
+        var offset = (busRead(_pc) << 24) >> 24;
+        var result = _sp + offset;
+
+        _sp = result & 0xFFFF;
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = (_sp ^ offset ^ result) & 0x10;
+        _CFlag = result & 0x100;
+
+        _pc++;
+        _extClockCycle.invoke(2);
+    }
+
+    function op_di(opcode as Number) as Void {
+        _ime = false;
+        _imeNext = false;
+    }
+
+    function op_ei(opcode as Number) as Void {
+        _imeNext = true;
+    }
+
+    function op_halt(opcode as Number) as Void {
+        _state = CPU_STATE_START_HALT;
+    }
+
+    function op_daa(opcode as Number) as Void {
+        var adj = 0;
+        if ((_HFlag != 0) || ((_NFlag == 0) && ((_regs[REG_A] & 0xF) > 0x9))) {
+            adj += 0x6;
+        }
+        if ((_CFlag != 0) || ((_NFlag == 0) && (_regs[REG_A] > 0x99))) {
+            adj += 0x60;
+            if (_NFlag == 0) {
+                _CFlag = 1;
+            }
+        }
+        if (_NFlag != 0) {
+            _regs[REG_A] -= adj;
+        } else {
+            _regs[REG_A] += adj;
+        }
+    }
+
+    function op_nop(opcode as Number) as Void {
+    }
+
+    function op_invalid(opcode as Number) as Void {
+        throw new Lang.Exception(); // Opcode not implemented
+    }
+
+    // TODO: Look at if performance gains are worth converting this to per op functions
+    private function doCBOP(opcode as Number) as Void {
         var regIndex = opcode & 0x07;
         var opType = (opcode >> 3) & 0x07;
         var group = opcode >> 6;
         var isHL = regIndex == 6;
-        var value = isHL ? cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], null) : _regs[regIndex];
+        var value = isHL ? busRead((_regs[REG_H] << 8) | _regs[REG_L]) : _regs[regIndex];
         var result = 0;
 
         switch (group) {
@@ -1276,18 +1103,247 @@ class GameBoyCPU {
             }
         }
 
-        if (isHL) {
-            if (group != CB_GROUP_BIT) { 
-                cpuBusRequest((_regs[REG_H] << 8) | _regs[REG_L], result); 
-                return 3;
+        if (group != CB_GROUP_BIT) { 
+            if (isHL) {
+                busWrite((_regs[REG_H] << 8) | _regs[REG_L], result); 
             } else {
-                return 2;
-            }
-        } else {
-            if (group != CB_GROUP_BIT) { 
                 _regs[regIndex] = result;
             }
-            return 1;
         }
     }
+
+    private var _opLookup as Array<GBCPUOp> = [
+        method(:op_nop),
+        method(:op_ld_rr_u16),
+        method(:op_ld_BCptr_A),
+        method(:op_inc_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_rlca),
+        method(:op_ld_u16tr_SP),
+        method(:op_add_HL_rr),
+        method(:op_ld_A_BCptr),
+        method(:op_dec_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_rrca),
+        method(:op_invalid),
+        method(:op_ld_rr_u16),
+        method(:op_ld_DEptr_A),
+        method(:op_inc_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_rla),
+        method(:op_jr_s8),
+        method(:op_add_HL_rr),
+        method(:op_ld_A_DEptr),
+        method(:op_dec_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_rra),
+        method(:op_jr_nz),
+        method(:op_ld_rr_u16),
+        method(:op_ldi_HL_A),
+        method(:op_inc_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_daa),
+        method(:op_jr_z),
+        method(:op_add_HL_rr),
+        method(:op_ldi_A_HL),
+        method(:op_dec_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_cpl),
+        method(:op_jr_nc),
+        method(:op_ld_rr_u16),
+        method(:op_ldd_HL_A),
+        method(:op_inc_rr),
+        method(:op_inc_HLptr),
+        method(:op_dec_HLptr),
+        method(:op_ld_HLptr_u8),
+        method(:op_scf),
+        method(:op_jr_c),
+        method(:op_add_HL_rr),
+        method(:op_ldd_A_HL),
+        method(:op_dec_rr),
+        method(:op_inc_r),
+        method(:op_dec_r),
+        method(:op_ld_r_u8),
+        method(:op_ccf),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_HLptr),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_HLptr),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_HLptr),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_HLptr_r),
+        method(:op_halt),
+        method(:op_ld_HLptr_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_r),
+        method(:op_ld_r_HLptr),
+        method(:op_ld_r_r),
+        method(:op_add_r),
+        method(:op_add_r),
+        method(:op_add_r),
+        method(:op_add_r),
+        method(:op_add_r),
+        method(:op_add_r),
+        method(:op_add_HLptr),
+        method(:op_add_r),
+        method(:op_adc_r),
+        method(:op_adc_r),
+        method(:op_adc_r),
+        method(:op_adc_r),
+        method(:op_adc_r),
+        method(:op_adc_r),
+        method(:op_adc_HLptr),
+        method(:op_adc_r),
+        method(:op_sub_r),
+        method(:op_sub_r),
+        method(:op_sub_r),
+        method(:op_sub_r),
+        method(:op_sub_r),
+        method(:op_sub_r),
+        method(:op_sub_HLptr),
+        method(:op_sub_r),
+        method(:op_sbc_r),
+        method(:op_sbc_r),
+        method(:op_sbc_r),
+        method(:op_sbc_r),
+        method(:op_sbc_r),
+        method(:op_sbc_r),
+        method(:op_sbc_HLptr),
+        method(:op_sbc_r),
+        method(:op_and_r),
+        method(:op_and_r),
+        method(:op_and_r),
+        method(:op_and_r),
+        method(:op_and_r),
+        method(:op_and_r),
+        method(:op_and_HLptr),
+        method(:op_and_r),
+        method(:op_xor_r),
+        method(:op_xor_r),
+        method(:op_xor_r),
+        method(:op_xor_r),
+        method(:op_xor_r),
+        method(:op_xor_r),
+        method(:op_xor_HLptr),
+        method(:op_xor_r),
+        method(:op_or_r),
+        method(:op_or_r),
+        method(:op_or_r),
+        method(:op_or_r),
+        method(:op_or_r),
+        method(:op_or_r),
+        method(:op_or_HLptr),
+        method(:op_or_r),
+        method(:op_cp_r),
+        method(:op_cp_r),
+        method(:op_cp_r),
+        method(:op_cp_r),
+        method(:op_cp_r),
+        method(:op_cp_r),
+        method(:op_cp_HLptr),
+        method(:op_cp_r),
+        method(:op_ret_nz),
+        method(:op_pop_rr),
+        method(:op_jp_nz),
+        method(:op_jp_u16),
+        method(:op_call_nz),
+        method(:op_push_rr),
+        method(:op_add_u8),
+        method(:op_rst),
+        method(:op_ret_z),
+        method(:op_ret_and_reti),
+        method(:op_jp_z),
+        method(:op_cb_op),
+        method(:op_call_z),
+        method(:op_call_u16),
+        method(:op_adc_u8),
+        method(:op_rst),
+        method(:op_ret_nc),
+        method(:op_pop_rr),
+        method(:op_jp_nc),
+        method(:op_invalid),
+        method(:op_call_nc),
+        method(:op_push_rr),
+        method(:op_sub_u8),
+        method(:op_rst),
+        method(:op_ret_c),
+        method(:op_ret_and_reti),
+        method(:op_jp_c),
+        method(:op_invalid),
+        method(:op_call_c),
+        method(:op_invalid),
+        method(:op_sbc_u8),
+        method(:op_rst),
+        method(:op_ld_u8ptr_A),
+        method(:op_pop_rr),
+        method(:op_ld_Cptr_A),
+        method(:op_invalid),
+        method(:op_invalid),
+        method(:op_push_rr),
+        method(:op_and_u8),
+        method(:op_rst),
+        method(:op_add_SP_s8),
+        method(:op_jp_hl),
+        method(:op_ld_u16ptr_A),
+        method(:op_invalid),
+        method(:op_invalid),
+        method(:op_invalid),
+        method(:op_xor_u8),
+        method(:op_rst),
+        method(:op_ld_A_u8ptr),
+        method(:op_pop_AF),
+        method(:op_ld_A_Cptr),
+        method(:op_di),
+        method(:op_invalid),
+        method(:op_push_AF),
+        method(:op_or_u8),
+        method(:op_rst),
+        method(:op_ld_HL_SP_s8),
+        method(:op_ld_SP_HL),
+        method(:op_ld_A_u16ptr),
+        method(:op_ei),
+        method(:op_invalid),
+        method(:op_invalid),
+        method(:op_cp_u8),
+        method(:op_rst),
+    ];
 }

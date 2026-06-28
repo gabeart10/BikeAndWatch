@@ -31,6 +31,7 @@ class GameBoy {
     private var _mainTimer as Timer.Timer = new Timer.Timer();
     private var _lastTime as Number = 0;
     private var _mCyclePerCycle as Number = START_MCPC;
+    private var _cycleCount as Number = 0;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
         _cpu = new GameBoyCPU(data, method(:busRead), method(:busWrite), method(:cycleMClock));
@@ -61,7 +62,7 @@ class GameBoy {
             return _wram[addr - 0xE000];
         } else if (addr < 0xFEA0) {
             // OAM
-            return (_ppu as GameBoyPPU).busRead(addr, data);
+            return (_ppu as GameBoyPPU).busRead(addr);
         } else if (addr == 0xFF00) {
             // Joypad Input
             return _joyp;
@@ -117,16 +118,16 @@ class GameBoy {
     }
 
     function emuCycle() as Void {
-        var cycleCount = 0;
+        _cycleCount = 0;
         var startTime = System.getTimer();
         var waitTimeDelta = startTime - _lastTime; 
-        while (cycleCount < _mCyclePerCycle) {
-            cycleCount += step();
+        while (_cycleCount < _mCyclePerCycle) {
+            (_cpu as GameBoyCPU).step();
         }
         _lastTime = System.getTimer();
 
         var exeTimeDelta = _lastTime - startTime;
-        var speed = (cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
+        var speed = (_cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
         if (!DEBUG_MODE) {
             _mCyclePerCycle += (TARGET_EXEC_TIME_MS - exeTimeDelta) * CYCLE_PER_MS_ADJUST;
         }
@@ -138,6 +139,7 @@ class GameBoy {
     function cycleMClock(mCycles as Number) as Void {
         (_timer as GameBoyTimer).step(mCycles);
         (_ppu as GameBoyPPU).step(mCycles);
+        _cycleCount += mCycles;
     }
 
     function initialize(bootRomServer as String, eventCB as Method(Event) as Void) {
