@@ -12,6 +12,16 @@ class GameBoy {
         EVENT_READY,
         EVENT_FRAME_DONE
     }
+    enum Button {
+        BUTTON_A = 0x01,
+        BUTTON_B = 0x02,
+        BUTTON_SELECT = 0x04,
+        BUTTON_START = 0x08,
+        BUTTON_RIGHT = 0x10,
+        BUTTON_LEFT = 0x20,
+        BUTTON_UP = 0x40,
+        BUTTON_DOWN = 0x80
+    }
 
     private var _cart as GameCart?;
     private var _cpu as GameBoyCPU?;
@@ -19,7 +29,9 @@ class GameBoy {
     private var _ppu as GameBoyPPU?;
     private var _wram as ByteArray = new[4096]b;
     private var _dummyAudio as ByteArray = new[23]b;
-    private var _joyp as Number = 0x0F;
+    private var _joypadDirection as Number = 0xFF;
+    private var _joypadAction as Number = 0xFF;
+    private var _joyp as Number = 0x3F;
     private var _bootRomRequest as ExternalDataRequester;
     private var _eventCB as Method(Event) as Void;
     private var _mainTimer as Timer.Timer = new Timer.Timer();
@@ -60,7 +72,14 @@ class GameBoy {
             return (_ppu as GameBoyPPU).busRead(addr);
         } else if (addr == 0xFF00) {
             // Joypad Input
-            return _joyp;
+            var ret = _joyp;
+            if ((ret & 0x10) == 0) {
+                ret &= _joypadDirection;
+            }
+            if ((ret & 0x20) == 0) {
+                ret &= _joypadAction;
+            }
+            return ret;
         } else if (addr < 0xFF03) {
             // Serial Transfer
             return 0xFF;
@@ -92,7 +111,7 @@ class GameBoy {
             (_ppu as GameBoyPPU).busWrite(addr, data);
         } else if (addr == 0xFF00) {
             // Joypad Input
-            _joyp = (_joyp & 0x0F) | (data & 0x30);
+            _joyp = (data & 0x30) | 0x0F;
         } else if (addr < 0xFF08) {
             // Timer registers
             (_timer as GameBoyTimer).busWrite(addr, data);
@@ -161,4 +180,30 @@ class GameBoy {
     function getFrame() as BufferedBitmap {
         return (_ppu as GameBoyPPU).getBitmap();
     } 
+
+    function pressButton(bttn as Button) as Void {
+        if (bttn > BUTTON_START) {
+            var prev = _joypadDirection;
+            bttn >>= 4;
+            _joypadDirection &= ~bttn;
+            if (((_joyp & 0x10) == 0) && (prev != _joypadDirection)) {
+                (_cpu as GameBoyCPU).sendInt(GameBoyCPU.INT_JOYPAD);
+            }
+        } else {
+            var prev = _joypadAction;
+            _joypadAction &= ~bttn;
+            if (((_joyp & 0x20) == 0) && (prev != _joypadAction)) {
+                (_cpu as GameBoyCPU).sendInt(GameBoyCPU.INT_JOYPAD);
+            }
+        }
+    }
+
+    function pressRelease(bttn as Button) as Void {
+        if (bttn > BUTTON_START) {
+            bttn >>= 4;
+            _joypadDirection |= bttn;
+        } else {
+            _joypadAction |= bttn;
+        }
+    }
 }

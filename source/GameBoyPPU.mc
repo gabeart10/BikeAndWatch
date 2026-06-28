@@ -255,6 +255,7 @@ class GameBoyPPU {
                         _ly++;
                         if (_ly == SCREEN_HEIGHT) {
                             _frameDoneCB.invoke();
+                            _sendCPUInt.invoke(GameBoyCPU.INT_VBLANK);
                             _ppuMode = PPUMODE_VBLANK;
                             _ppuModeTick = PPUCYCLE_VBLANK;
                         } else {
