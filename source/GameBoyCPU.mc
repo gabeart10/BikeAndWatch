@@ -47,6 +47,8 @@ class GameBoyCPU {
         INT_JOYPAD = 4,
         INT_END
     }
+    private const RegStrings as Array<String> = ["B", "C", "D", "E", "H", "L", "INVALID", "A"];
+    private const DoubleRegStrings as Array<String> = ["BC", "DE", "HL", "SP"];
 
     private var _bootRom as ByteArray?;
     private var _hram as ByteArray = new[127]b;

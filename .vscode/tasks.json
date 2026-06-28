@@ -6,15 +6,36 @@
 			"device": "edge1050",
 			"simulatorBuild": true,
 			"folderPath": "${workspaceFolder}",
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			},
+			"group": "build",
 			"problemMatcher": [],
+			"compilerArgs": "--debug-log-level 2",
 			"presentation": {
 				"reveal": "never",
 			},
 			"label": "monkeyc: edge1050"
+		},
+		{
+			"type": "shell",
+			"label": "unzip log.zip",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Expand-Archive -Path \"${workspaceFolder}\\bin\\log.zip\" -DestinationPath \"${workspaceFolder}\\bin\" -Force"
+			],
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "never"
+			}
+		},
+		{ 
+			"label": "monkeyc: edge1050 w/ unzip",
+			"dependsOrder": "sequence",
+			"dependsOn": ["monkeyc: edge1050", "unzip log.zip"],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
 		}
 	]
 }
