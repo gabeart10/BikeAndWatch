@@ -182,19 +182,18 @@ class GameBoy {
     } 
 
     function pressButton(bttn as Button) as Void {
+        var prev = busRead(0xFF00);
         if (bttn > BUTTON_START) {
-            var prev = _joypadDirection;
             bttn >>= 4;
             _joypadDirection &= ~bttn;
-            if (((_joyp & 0x10) == 0) && (prev != _joypadDirection)) {
+            if (prev != busRead(0xFF00)) {
                 (_cpu as GameBoyCPU).sendInt(GameBoyCPU.INT_JOYPAD);
             }
         } else {
-            var prev = _joypadAction;
             _joypadAction &= ~bttn;
-            if (((_joyp & 0x20) == 0) && (prev != _joypadAction)) {
-                (_cpu as GameBoyCPU).sendInt(GameBoyCPU.INT_JOYPAD);
-            }
+        }
+        if (prev != busRead(0xFF00)) {
+            (_cpu as GameBoyCPU).sendInt(GameBoyCPU.INT_JOYPAD);
         }
     }
 
