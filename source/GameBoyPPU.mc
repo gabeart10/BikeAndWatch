@@ -229,55 +229,58 @@ class GameBoyPPU {
         if ((_lcdc & 0x80) == 0) {
             return;
         }
-
-        _ppuModeTick--;
-        if (_ppuModeTick == 0) {
-            switch (_ppuMode) {
-                case PPUMODE_OAM_SCAN: {
-                    _ppuMode = PPUMODE_DRAW;
-                    _ppuModeTick = PPUCYCLE_DRAW;
-                    if (_ly == _wy) {
-                        _yCond = true;
+        
+        while (mCycles > 0) {
+            _ppuModeTick--;
+            mCycles--;
+            if (_ppuModeTick == 0) {
+                switch (_ppuMode) {
+                    case PPUMODE_OAM_SCAN: {
+                        _ppuMode = PPUMODE_DRAW;
+                        _ppuModeTick = PPUCYCLE_DRAW;
+                        if (_ly == _wy) {
+                            _yCond = true;
+                        }
+                        drawLine();
+                        break;
                     }
-                    drawLine();
-                    break;
-                }
 
-                case PPUMODE_DRAW: {
-                    _ppuMode = PPUMODE_HBLANK;
-                    _ppuModeTick = PPUCYCLE_HBLANK;
-                    break;
-                }
-
-                case PPUMODE_HBLANK: {
-                    _ly++;
-                    if (_ly == SCREEN_HEIGHT) {
-                        _frameDoneCB.invoke();
-                        _ppuMode = PPUMODE_VBLANK;
-                        _ppuModeTick = PPUCYCLE_VBLANK;
-                    } else {
-                        _ppuMode = PPUMODE_OAM_SCAN;
-                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                    case PPUMODE_DRAW: {
+                        _ppuMode = PPUMODE_HBLANK;
+                        _ppuModeTick = PPUCYCLE_HBLANK;
+                        break;
                     }
-                    break;
-                }
 
-                case PPUMODE_VBLANK: {
-                    _ly++;
-                    if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
-                        _ly = 0;
-                        _wYPos = 0;
-                        _yCond = false;
-                        _ppuMode = PPUMODE_OAM_SCAN;
-                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                    } else {
-                        _ppuModeTick = PPUCYCLE_VBLANK;
+                    case PPUMODE_HBLANK: {
+                        _ly++;
+                        if (_ly == SCREEN_HEIGHT) {
+                            _frameDoneCB.invoke();
+                            _ppuMode = PPUMODE_VBLANK;
+                            _ppuModeTick = PPUCYCLE_VBLANK;
+                        } else {
+                            _ppuMode = PPUMODE_OAM_SCAN;
+                            _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                        }
+                        break;
                     }
-                    break;
+
+                    case PPUMODE_VBLANK: {
+                        _ly++;
+                        if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
+                            _ly = 0;
+                            _wYPos = 0;
+                            _yCond = false;
+                            _ppuMode = PPUMODE_OAM_SCAN;
+                            _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                        } else {
+                            _ppuModeTick = PPUCYCLE_VBLANK;
+                        }
+                        break;
+                    }
                 }
+                // Check for STAT interrupt
+                checkStat();
             }
-            // Check for STAT interrupt
-            checkStat();
         }
     }
 
