@@ -69,7 +69,7 @@ class GameBoyPPU {
 
     private function drawLine() as Void {
         var bmDc = _bitmap.getDc();
-        var selOBJs = new[0];
+        var selOBJs = (new[0]) as Array<Number>;
         var objHeight = (_lcdc & LCDCBIT_OBJ_SIZE) ? 16 : 8; 
 
         // Get OBJs on line

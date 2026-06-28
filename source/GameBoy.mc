@@ -7,12 +7,6 @@ typedef GBBusRead as Method(addr as Number) as Number;
 typedef GBBusWrite as Method(addr as Number, data as Number) as Void;
 typedef GBClockCycle as Method(mCycles as Number) as Void;
 
-const DEBUG_MODE as Boolean = false;
-const START_MCPC as Number = 1000;
-const TARGET_EXEC_TIME_MS as Number = 190;
-const CYCLE_PER_MS_ADJUST as Number = 8;
-const EMU_CYCLE_MS as Number = 200;
-
 class GameBoy {
     enum Event {
         EVENT_READY,
@@ -30,7 +24,6 @@ class GameBoy {
     private var _eventCB as Method(Event) as Void;
     private var _mainTimer as Timer.Timer = new Timer.Timer();
     private var _lastTime as Number = 0;
-    private var _mCyclePerCycle as Number = START_MCPC;
     private var _cycleCount as Number = 0;
 
     function bootRomReady(data as ByteArray, requestString as String) as Void {
@@ -45,9 +38,11 @@ class GameBoy {
     }
 
     function busRead(addr as Number) as Number {
-        if (addr < 0x8000 && _cart != null) {
+        if (addr < 0x8000) {
             // ROM
-            return _cart.readByte(addr);
+            if (_cart != null) {
+                return _cart.readByte(addr);
+            }
         } else if (addr < 0xA000) {
             // VRAM
             return (_ppu as GameBoyPPU).busRead(addr);
@@ -121,18 +116,15 @@ class GameBoy {
         _cycleCount = 0;
         var startTime = System.getTimer();
         var waitTimeDelta = startTime - _lastTime; 
-        while (_cycleCount < _mCyclePerCycle) {
+        for (var i = 0; i < STEPS_PER_CYCLE; i++) {
             (_cpu as GameBoyCPU).step();
         }
         _lastTime = System.getTimer();
 
         var exeTimeDelta = _lastTime - startTime;
         var speed = (_cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
-        if (!DEBUG_MODE) {
-            _mCyclePerCycle += (TARGET_EXEC_TIME_MS - exeTimeDelta) * CYCLE_PER_MS_ADJUST;
-        }
-        System.println(format("Wait Time: $1$ms | Utilization: $2$% | $3$ MCycle/sec", 
-            [waitTimeDelta.format("%d"), ((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
+        System.println(format("Utilization: $1$% | $2$ MCycle/s", 
+            [((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
         ));
     }
 
