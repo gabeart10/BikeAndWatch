@@ -197,7 +197,7 @@ class GameBoy {
         }
     }
 
-    function pressRelease(bttn as Button) as Void {
+    function releaseButton(bttn as Button) as Void {
         if (bttn > BUTTON_START) {
             bttn >>= 4;
             _joypadDirection |= bttn;
