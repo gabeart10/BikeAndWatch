@@ -49,6 +49,7 @@ class GameBoyCPU {
     }
 
     private var _skipReadPrint as Boolean = true;
+    private var _printEnable as Boolean = false;
     private var _bootRom as ByteArray?;
     private var _hram as ByteArray = new[127]b;
     private var _extBusRead as GBBusRead;
@@ -92,7 +93,7 @@ class GameBoyCPU {
                 data = _extBusRead.invoke(addr);
             }
 
-            if (!_skipReadPrint) {
+            if (!_skipReadPrint && _printEnable) {
                 System.print(" [0x" + addr.format("%04X") + " 0x" + data.format("%02X") + "]");
             } else {
                 _skipReadPrint = false;
@@ -245,22 +246,24 @@ class GameBoyCPU {
         }
 
         if (PRINT_TRACE) {
-            System.print(
-                "\n0x" + _pc.format("%04X")
-                + " " + _opStrings[opcode]
-                + " | SP:0x" + _sp.format("%04X")
-                + " A:0x" + _regs[REG_A].format("%02X")
-                + " B:0x" + _regs[REG_B].format("%02X")
-                + " C:0x" + _regs[REG_C].format("%02X")
-                + " D:0x" + _regs[REG_D].format("%02X")
-                + " E:0x" + _regs[REG_E].format("%02X")
-                + " H:0x" + _regs[REG_H].format("%02X")
-                + " L:0x" + _regs[REG_L].format("%02X")
-                + " Z:" + (_nZFlag == 0 ? "1" : "0")
-                + " N:" + (_NFlag != 0 ? "1" : "0")
-                + " H:" + (_HFlag != 0 ? "1" : "0")
-                + " C:" + (_CFlag != 0 ? "1" : "0")
-            );
+            if (_printEnable) {
+                System.print(
+                    "\n0x" + _pc.format("%04X")
+                    + " " + _opStrings[opcode]
+                    + " | SP:0x" + _sp.format("%04X")
+                    + " A:0x" + _regs[REG_A].format("%02X")
+                    + " B:0x" + _regs[REG_B].format("%02X")
+                    + " C:0x" + _regs[REG_C].format("%02X")
+                    + " D:0x" + _regs[REG_D].format("%02X")
+                    + " E:0x" + _regs[REG_E].format("%02X")
+                    + " H:0x" + _regs[REG_H].format("%02X")
+                    + " L:0x" + _regs[REG_L].format("%02X")
+                    + " Z:" + (_nZFlag == 0 ? "1" : "0")
+                    + " N:" + (_NFlag != 0 ? "1" : "0")
+                    + " H:" + (_HFlag != 0 ? "1" : "0")
+                    + " C:" + (_CFlag != 0 ? "1" : "0")
+                );
+            }
         }
 
         // Run opcode function

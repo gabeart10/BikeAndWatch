@@ -2,10 +2,10 @@ import Toybox.Lang;
 import Toybox.Graphics;
 
 class GameBoyPPU {
+    static const SCREEN_WIDTH = 160;
+    static const SCREEN_HEIGHT = 144;
     const OBJ_LIM = 10;
     const OBJ_WIDTH = 8;
-    const SCREEN_WIDTH = 160;
-    const SCREEN_HEIGHT = 144;
     const VBLANK_LINES = 10;
     const TILEMAP_START_ZERO = 0x1800;
     const TILEMAP_START_ONE = 0x1C00;
@@ -111,12 +111,12 @@ class GameBoyPPU {
             if (wEn && _yCond && lineX >= _wx) {
                 var wX = lineX - _wx;
                 baseTileIdx = _vram[wTileIdxStart + (wX / 8)];
-                baseTileX = wX % 8;
+                baseTileX = 7 - (wX % 8);
                 baseTileY = wTileY;
             } else if (bgEn) {
-                var bgX = (lineX + _scx) & 256;
+                var bgX = (lineX + _scx) % 256;
                 baseTileIdx = _vram[bgTileIdxStart + (bgX / 8)];
-                baseTileX = bgX % 8;
+                baseTileX = 7 - (bgX % 8);
                 baseTileY = bgTileY;
             }
 

@@ -2,6 +2,8 @@ import Toybox.Lang;
 import Toybox.Graphics;
 import Toybox.WatchUi;
 
+const SCALE_FACTOR as Float = 2.0;
+
 class BikeAndWatchView extends WatchUi.View {
     private var _gb as GameBoy = new GameBoy("http://127.0.0.1:5000", method(:gbEventHandler));
     private var _drawFrame as Boolean = false;
@@ -27,7 +29,9 @@ class BikeAndWatchView extends WatchUi.View {
         // Call the parent onUpdate function to redraw the layout
         View.onUpdate(dc);
         if (_drawFrame) {
-            dc.drawBitmap(0, 50, _gb.getFrame());
+            var transform = new AffineTransform();
+            transform.scale(SCALE_FACTOR, SCALE_FACTOR);
+            dc.drawBitmap2(80, 50, _gb.getFrame(), {:transform => transform});
             _drawFrame = false;
         }
     }
