@@ -167,8 +167,8 @@ class GameBoyPPU {
                         objColorIdx |= (_vram[objTileIdx] >> objTileX) & 0x1;
                         if (objColorIdx != 0) {
                             // Found OBJ to use for this pixel
-                            if (objColorIdx == 0 || ((objAttr & OBJATTRBIT_PRIORITY) == 0)) {
-                                var objPalette = (OBJBYTE_ATTR & OBJATTRBIT_PALETTE) ? _obp1 : _obp0;
+                            if (baseColor == 0 || (objAttr & OBJATTRBIT_PRIORITY) == 0) {
+                                var objPalette = (objAttr & OBJATTRBIT_PALETTE) ? _obp1 : _obp0;
                                 baseColor = (objPalette >> (objColorIdx * 2)) & 0x3;
                             }
                             // Always break on first non-transparent obj color
@@ -319,7 +319,7 @@ class GameBoyPPU {
             return _obp0;
         } else if (addr == 0xFF49) {
             // OBJ1 Palette Data
-            return _obp0;
+            return _obp1;
         } else if (addr == 0xFF4A) {
             // Window Y Pos
             return _wy;

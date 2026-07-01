@@ -27,7 +27,7 @@ class GameBoy {
     private var _cpu as GameBoyCPU?;
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
-    private var _wram as ByteArray = new[4096]b;
+    private var _wram as ByteArray = new[8192]b;
     private var _dummyAudio as ByteArray = new[23]b;
     private var _joypadDirection as Number = 0xFF;
     private var _joypadAction as Number = 0xFF;

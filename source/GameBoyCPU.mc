@@ -177,7 +177,7 @@ class GameBoyCPU {
     }
 
     private function calcFlags(firstVal as Number, secondVal as Number, result as Number, isSubtraction as Number, carryMask as Number) as Void {
-        _nZFlag = result;
+        _nZFlag = result & 0xFF;
         _NFlag = isSubtraction;
         _HFlag = (firstVal ^ secondVal ^ result) & 0x10;
         _CFlag = result & carryMask;
@@ -264,6 +264,10 @@ class GameBoyCPU {
                     + " C:" + (_CFlag != 0 ? "1" : "0")
                 );
             }
+        }
+
+        if (_pc == 0x100) {
+            _printEnable = true;
         }
 
         // Run opcode function
@@ -412,7 +416,10 @@ class GameBoyCPU {
         _regs[REG_H] = (result >> 8) & 0xFF;
         _regs[REG_L] = result & 0xFF;
 
-        calcFlags(_sp, offset, result, 0, 0x10000);
+        _nZFlag = 1;
+        _NFlag = 0;
+        _HFlag = (_sp ^ offset ^ result) & 0x10;
+        _CFlag = result & 0x100;
         _pc++;
         _extClockCycle.invoke(1);
     } 
@@ -661,7 +668,7 @@ class GameBoyCPU {
     }
 
     function op_cpl(opcode as Number) as Void {
-        _regs[REG_A] = ~_regs[REG_A];
+        _regs[REG_A] = (~_regs[REG_A]) & 0xFF;
         _NFlag = 1;
         _HFlag = 1;
     }
@@ -726,7 +733,7 @@ class GameBoyCPU {
     }
 
     function op_jp_z(opcode as Number) as Void {
-        if (!_nZFlag) {
+        if (_nZFlag) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
             _extClockCycle.invoke(1);
         } else {
@@ -736,7 +743,7 @@ class GameBoyCPU {
     }
 
     function op_jp_nc(opcode as Number) as Void {
-        if (!_CFlag) {
+        if (_CFlag == 0) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
             _extClockCycle.invoke(1);
         } else {
@@ -770,7 +777,7 @@ class GameBoyCPU {
     }
 
     function op_jr_z(opcode as Number) as Void {
-        if (!_nZFlag) {
+        if (_nZFlag == 0) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
         } else {
             _pc++;
@@ -779,7 +786,7 @@ class GameBoyCPU {
     }
 
     function op_jr_nc(opcode as Number) as Void {
-        if (!_CFlag) {
+        if (_CFlag == 0) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
         } else {
             _pc++;
@@ -828,7 +835,7 @@ class GameBoyCPU {
     }
 
     function op_call_z(opcode as Number) as Void {
-        if (!_nZFlag) {
+        if (_nZFlag == 0) {
             var callAddr = busRead(_pc);
             _pc++;
             callAddr |= busRead(_pc) << 8;
@@ -846,7 +853,7 @@ class GameBoyCPU {
     }
 
     function op_call_nc(opcode as Number) as Void {
-        if (!_CFlag) {
+        if (_CFlag == 0) {
             var callAddr = busRead(_pc);
             _pc++;
             callAddr |= busRead(_pc) << 8;
@@ -906,7 +913,7 @@ class GameBoyCPU {
     }
 
     function op_ret_z(opcode as Number) as Void {
-        if (!_nZFlag) {
+        if (_nZFlag == 0) {
             _pc = busRead(_sp);
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
@@ -918,7 +925,7 @@ class GameBoyCPU {
     }
 
     function op_ret_nc(opcode as Number) as Void {
-        if (!_CFlag) {
+        if (_CFlag == 0) {
             _pc = busRead(_sp);
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
@@ -953,7 +960,7 @@ class GameBoyCPU {
     function op_ccf(opcode as Number) as Void {
         _NFlag = 0;
         _HFlag = 0;
-        _CFlag = !_CFlag;
+        _CFlag = (_CFlag == 0) ? 1 : 0;
     }
 
     function op_scf(opcode as Number) as Void {
@@ -973,7 +980,7 @@ class GameBoyCPU {
 
     function op_push_AF(opcode as Number) as Void {
         var pushData = _regs[REG_A] << 8;
-        pushData |= (!_nZFlag) ? 0x80 : 0x00;
+        pushData |= (_nZFlag == 0) ? 0x80 : 0x00;
         pushData |= (_NFlag) ? 0x40 : 0x00;
         pushData |= (_HFlag) ? 0x20 : 0x00;
         pushData |= (_CFlag) ? 0x10 : 0x00;
@@ -994,7 +1001,7 @@ class GameBoyCPU {
 
     function op_pop_AF(opcode as Number) as Void {
         var popData = busRead(_sp);
-        _nZFlag = !(popData & 0x80);
+        _nZFlag = ((popData & 0x80) == 0) ? 1 : 0;
         _NFlag = popData & 0x40;
         _HFlag = popData & 0x20;
         _CFlag = popData & 0x10;
@@ -1007,12 +1014,12 @@ class GameBoyCPU {
         var offset = (busRead(_pc) << 24) >> 24;
         var result = _sp + offset;
 
-        _sp = result & 0xFFFF;
         _nZFlag = 1;
         _NFlag = 0;
         _HFlag = (_sp ^ offset ^ result) & 0x10;
         _CFlag = result & 0x100;
 
+        _sp = result & 0xFFFF;
         _pc++;
         _extClockCycle.invoke(2);
     }
