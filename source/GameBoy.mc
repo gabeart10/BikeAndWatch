@@ -28,7 +28,7 @@ class GameBoy {
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
     private var _wram as ByteArray = new[8192]b;
-    private var _dummyAudio as ByteArray = new[23]b;
+    private var _dummyAudio as ByteArray = new[48]b;
     private var _joypadDirection as Number = 0xFF;
     private var _joypadAction as Number = 0xFF;
     private var _joyp as Number = 0x3F;
@@ -61,7 +61,7 @@ class GameBoy {
         } else if (addr < 0xC000) {
             // External Ram
             return 0xFF;
-        } else if (addr < 0xD000) {
+        } else if (addr < 0xE000) {
             // WRAM
             return _wram[addr - 0xC000];
         } else if (addr < 0xFE00) {
@@ -97,10 +97,12 @@ class GameBoy {
     }
 
     function busWrite(addr as Number, data as Number) as Void {
-        if (addr < 0xA000) {
+        if (addr < 0x8000) {
+            // TODO - ROM 
+        } else if (addr < 0xA000) {
             // VRAM
             (_ppu as GameBoyPPU).busWrite(addr, data);
-        } else if (addr < 0xD000) {
+        } else if (addr < 0xE000) {
             // WRAM
             _wram[addr - 0xC000] = data;
         } else if (addr < 0xFE00) {

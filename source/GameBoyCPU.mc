@@ -248,7 +248,7 @@ class GameBoyCPU {
         if (PRINT_TRACE) {
             if (_printEnable) {
                 System.print(
-                    "\n0x" + _pc.format("%04X")
+                    "\n0x" + (_pc - 1).format("%04X")
                     + " " + _opStrings[opcode]
                     + " | SP:0x" + _sp.format("%04X")
                     + " A:0x" + _regs[REG_A].format("%02X")
@@ -264,10 +264,6 @@ class GameBoyCPU {
                     + " C:" + (_CFlag != 0 ? "1" : "0")
                 );
             }
-        }
-
-        if (_pc == 0x100) {
-            _printEnable = true;
         }
 
         // Run opcode function

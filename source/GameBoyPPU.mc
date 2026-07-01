@@ -45,6 +45,7 @@ class GameBoyPPU {
     }
 
     private var _frameDoneCB as Method() as Void;
+    private var _frameSkipCount as Number = 0;
     private var _sendCPUInt as GBCPUSendIntFunc;
     private var _bitmap as BufferedBitmap;
     private var _prevIntState as Boolean = false;
@@ -241,7 +242,9 @@ class GameBoyPPU {
                         if (_ly == _wy) {
                             _yCond = true;
                         }
-                        drawLine();
+                        if (_frameSkipCount == 0) {
+                            drawLine();
+                        }
                         break;
                     }
 
@@ -271,6 +274,7 @@ class GameBoyPPU {
                             _ly = 0;
                             _wYPos = 0;
                             _yCond = false;
+                            _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
                             _ppuMode = PPUMODE_OAM_SCAN;
                             _ppuModeTick = PPUCYCLE_OAM_SCAN;
                         } else {
@@ -341,9 +345,12 @@ class GameBoyPPU {
             // LCD Control
             if ((data & LCDCBIT_LCD_EN) == 0) {
                 // Reset PPU if disabled
+                _ly = 0;
+                _wYPos = 0;
+                _yCond = false;
+                _frameSkipCount = 0;
                 _ppuMode = PPUMODE_OAM_SCAN;
                 _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                _ly = 0;
             }
             _lcdc = data;
         } else if (addr == 0xFF41) {
