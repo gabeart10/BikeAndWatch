@@ -5,8 +5,9 @@ import Toybox.WatchUi;
 const SCALE_FACTOR as Float = 2.0;
 
 class BikeAndWatchView extends WatchUi.View {
-    private var _gb as GameBoy = new GameBoy("http://127.0.0.1:5000", method(:gbEventHandler));
-    private var _cart as GameCart?;
+    private var _gb as GameBoy = new GameBoy(method(:gbEventHandler));
+    private var _gcManager as GameCart.Manager = GameCart.Manager.get();
+    private var _cart as GameCart.GameCart?;
     private var _drawFrame as Boolean = false;
 
     function initialize() {
@@ -43,7 +44,8 @@ class BikeAndWatchView extends WatchUi.View {
     function onHide() as Void {
     }
 
-    function cartReady() as Void {
+    function cartReady(gc as GameCart.GameCart) as Void {
+        _cart = gc;
         _gb.insertCart(_cart);
         _gb.start();
     }
@@ -51,7 +53,7 @@ class BikeAndWatchView extends WatchUi.View {
     function gbEventHandler(event as GameBoy.Event) as Void {
         switch (event) {
             case GameBoy.EVENT_READY: {
-                _cart = new GameCart("http://127.0.0.1:5000", "Tetris", method(:cartReady)); 
+                _gcManager.getCart("Tetris", method(:cartReady));
             } break;
             
             case GameBoy.EVENT_FRAME_DONE: {

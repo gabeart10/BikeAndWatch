@@ -23,7 +23,7 @@ class GameBoy {
         BUTTON_DOWN = 0x80
     }
 
-    private var _cart as GameCart?;
+    private var _cart as GameCart.GameCart?;
     private var _cpu as GameBoyCPU?;
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
@@ -50,17 +50,15 @@ class GameBoy {
     }
 
     function busRead(addr as Number) as Number {
-        if (addr < 0x8000) {
+        if (addr < 0x8000 && _cart != null) {
             // ROM
-            if (_cart != null) {
-                return _cart.readByte(addr);
-            }
+            return _cart.busRead(addr);
         } else if (addr < 0xA000) {
             // VRAM
             return (_ppu as GameBoyPPU).busRead(addr);
-        } else if (addr < 0xC000) {
+        } else if (addr < 0xC000 && _cart != null) {
             // External Ram
-            return 0xFF;
+            return _cart.busRead(addr);
         } else if (addr < 0xE000) {
             // WRAM
             return _wram[addr - 0xC000];
@@ -97,11 +95,15 @@ class GameBoy {
     }
 
     function busWrite(addr as Number, data as Number) as Void {
-        if (addr < 0x8000) {
-            // TODO - ROM 
+        if (addr < 0x8000 && _cart != null) {
+            // ROM
+            _cart.busWrite(addr, data);
         } else if (addr < 0xA000) {
             // VRAM
             (_ppu as GameBoyPPU).busWrite(addr, data);
+        } else if (addr < 0xC000 && _cart != null) {
+            // External Ram
+            _cart.busWrite(addr, data);
         } else if (addr < 0xE000) {
             // WRAM
             _wram[addr - 0xC000] = data;
@@ -155,18 +157,18 @@ class GameBoy {
         _cycleCount += mCycles;
     }
 
-    function initialize(bootRomServer as String, eventCB as Method(Event) as Void) {
+    function initialize(eventCB as Method(Event) as Void) {
         _eventCB = eventCB;
-        _bootRomRequest = new ExternalDataRequester(bootRomServer, method(:bootRomReady));
+        _bootRomRequest = new ExternalDataRequester(method(:bootRomReady));
     }
 
     function initSystem() as Void {
         if (_cpu == null) {
-            _bootRomRequest.getData("/boot-rom");
+            _bootRomRequest.getData("boot-rom");
         }
     }
 
-    function insertCart(cart as GameCart?) as Void {
+    function insertCart(cart as GameCart.GameCart?) as Void {
         _cart = cart;
     }
 

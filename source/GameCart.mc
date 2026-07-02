@@ -1,42 +1,32 @@
 import Toybox.Lang;
+import Toybox.Application;
+ 
+module GameCart {
+    class GameCart {
+        protected var _name as String;
+        protected var _romData as ByteArray = new[0]b;
 
-class GameCart {
-    private var _serverUrl as String;
-    private var _rom as ByteArray?; 
-    private var _trans as ExternalDataRequester;
-    private var _readyCallback as Method();
+        protected function getBank(bankNum as Number) as ByteArray {
+            var bankData = Storage.getValue("cart_" + _name + "_bank_" + bankNum);
+            if (bankData != null) {
+                return bankData as ByteArray;
+            } else {
+                throw new Lang.Exception();
+            }
+        } 
 
-    function bankReady(data as ByteArray, bank_string as String) as Void {
-        // TODO: Clean up with states
-        if (_rom == null) {
-            // Rom only null on init
-            _rom = data;
-            _trans.getData("1");
-        } else if (_rom.size() < (32 * 1024)) {
-            // Local ROM size will only be less than 32kB on init of bank 1
-            _rom = _rom.addAll(data);
-            // Local ROM is ready
-            _readyCallback.invoke();
-        } else {
-            // TODO
+        function initialize(name as String) {
+            _name = name;
+            // Load bank 0 and bank 1 from storage
+            _romData.addAll(getBank(0));
+            _romData.addAll(getBank(1));
         }
-    }
 
-    function initialize(romServer as String, romName as String, readyCallback as Method() as Void) {
-        _readyCallback = readyCallback;
-        _serverUrl = romServer + "/" + romName + "/";
-        _trans = new ExternalDataRequester(_serverUrl, method(:bankReady));
-
-        // Fill local ROM with first two banks of game ROM
-        // The max size of local ROM is 2 banks (32kB)
-        // The 2nd bank of local ROM will be swaped when needed
-        _trans.getData("0");
-    }
-
-    function readByte(addr as Number) as Number {
-        if (_rom == null || addr >= _rom.size()) {
-            throw new Lang.Exception();
+        function busRead(addr as Number) as Number {
+            return _romData[addr];
         }
-        return _rom[addr];
+
+        function busWrite(addr as Number, data as Number) as Void {
+        }
     }
 }

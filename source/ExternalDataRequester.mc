@@ -6,7 +6,7 @@ class ExternalDataRequester {
     private var _callBack as Method(ByteArray, String) as Void;
     private var _requestString as String = "";
     private var _inProgress as Boolean = false;
-    private var _url as String;
+    private var _url as String = "http://localhost:5000/";
 
     function onReceive(responseCode as Number, data as String) as Void {
         _inProgress = false;
@@ -17,8 +17,7 @@ class ExternalDataRequester {
         }
     }
 
-    function initialize(url as String, cb as Method(ByteArray, String) as Void) {
-        _url = url;
+    function initialize(cb as Method(ByteArray, String) as Void) {
         _callBack = cb;
     }
 
