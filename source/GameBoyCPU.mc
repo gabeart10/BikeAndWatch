@@ -416,10 +416,11 @@ class GameBoyCPU {
         _regs[REG_H] = (result >> 8) & 0xFF;
         _regs[REG_L] = result & 0xFF;
 
+        var carry = _sp ^ offset ^ result;
         _nZFlag = 1;
         _NFlag = 0;
-        _HFlag = (_sp ^ offset ^ result) & 0x10;
-        _CFlag = result & 0x100;
+        _HFlag = carry & 0x10;
+        _CFlag = carry & 0x100;
         _pc++;
         _extClockCycle.invoke();
     } 
@@ -1010,10 +1011,11 @@ class GameBoyCPU {
         var offset = (busRead(_pc) << 24) >> 24;
         var result = _sp + offset;
 
+        var carry = _sp ^ offset ^ result;
         _nZFlag = 1;
         _NFlag = 0;
-        _HFlag = (_sp ^ offset ^ result) & 0x10;
-        _CFlag = result & 0x100;
+        _HFlag = carry & 0x10;
+        _CFlag = carry & 0x100;
 
         _sp = result & 0xFFFF;
         _pc++;

@@ -3,6 +3,22 @@ import Toybox.Application;
 import Toybox.System;
 
 module GameCart {
+    typedef GameCart as interface {
+        function busRead(addr as Number) as Number;
+        function busWrite(addr as Number, data as Number) as Void;
+        function save() as Void;
+    };
+
+    function getBank(name as String, bankNum as Number, type as String) as ByteArray {
+        var bankData = Storage.getValue("cart_" + name + "_" + type + "_bank_" + bankNum);
+        if (bankData != null) {
+            return bankData as ByteArray;
+        } else {
+            System.println("Missing bank " + bankNum + " (" + type + ") for cart " + name);
+            throw new Lang.Exception();
+        }
+    }
+
     class Manager {
         typedef ReadyCallback as Method(gc as GameCart) as Void;
         private const RAM_BANK_LOOKUP as Array<Number> = [0, 0, 1, 4, 16, 8];
@@ -63,7 +79,7 @@ module GameCart {
             }
             switch (type) {
                 case CART_ROM_ONLY:
-                    return new GameCart(name);
+                    return new RomOnly(name);
                 case CART_MBC1:
                     return new MBC1(name, romBankCnt, ramBankCnt);
                 default:

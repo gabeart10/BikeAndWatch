@@ -2,13 +2,15 @@ import Toybox.Lang;
 import Toybox.Application;
  
 module GameCart {
-    class MBC1 extends GameCart {
+    class MBC1 {
         private enum BankingMode {
             MODE_SIMPLE = 0,
             MODE_ADVANCED = 1
         }
-        private var _ramEnabled as Boolean = false;
+        private var _name as String;
+        private var _rom as ByteArray = new[0]b;
         private var _ram as ByteArray = new[0]b;
+        private var _ramEnabled as Boolean = false;
         private var _ramBankCnt as Number;
         private var _romBankCnt as Number;
         private var _currRomBank as Number = 1;
@@ -16,12 +18,26 @@ module GameCart {
         private var _bankingMode as Number = MODE_SIMPLE;
 
         function initialize(name as String, romBankCnt as Number, ramBankCnt as Number) {
-            GameCart.initialize(name);
+            _name = name;
+
+            // Load bank 0 and bank 1 from storage
+            _rom.addAll(getBank(_name, 0, "rom"));
+            _rom.addAll(getBank(_name, 1, "rom"));
+
             _romBankCnt = romBankCnt;
             _ramBankCnt = ramBankCnt;
             if (_ramBankCnt > 0) {
-                _ram = getBank(0, "ram");
+                _ram = getBank(_name, 0, "ram");
             }
+        }
+
+        function busRead(addr as Number) as Number {
+            if (addr < 0x8000) {
+                return _rom[addr];
+            } else if (_ramEnabled) {
+                return _ram[addr - 0xA000];
+            }
+            return 0xFF;
         }
 
         function busWrite(addr as Number, data as Number) as Void {
@@ -38,7 +54,7 @@ module GameCart {
 
                 // Switch to the new ROM bank
                 _rom = _rom.slice(0, 0x4000);
-                _rom.addAll(getBank(_currRomBank % _romBankCnt, "rom"));
+                _rom.addAll(getBank(_name, _currRomBank % _romBankCnt, "rom"));
             } else if (addr < 0x6000) {
                 // Upper ROM bank bits
                 _currRomBank = ((data & 0x03) << 5) | (_currRomBank & 0x1F);
@@ -47,16 +63,16 @@ module GameCart {
                 if (_romBankCnt >= 64) {
                     // Switch to the new ROM bank(s)
                     if (_bankingMode == MODE_ADVANCED) {
-                        _rom = getBank((_currRomBank & 0x60) % _romBankCnt, "rom");
+                        _rom = getBank(_name, (_currRomBank & 0x60) % _romBankCnt, "rom");
                     } else {
                         _rom = _rom.slice(0, 0x4000);
                     }
-                    _rom.addAll(getBank(_currRomBank % _romBankCnt, "rom"));
+                    _rom.addAll(getBank(_name, _currRomBank % _romBankCnt, "rom"));
                 } else if (_ramBankCnt > 1 && _bankingMode == MODE_ADVANCED) {
                     // RAM bank select
                     Storage.setValue("cart_" + _name + "_ram_bank_" + _currRamBank, _ram);
                     _currRamBank = data & 0x03;
-                    _ram = getBank(_currRamBank % _ramBankCnt, "ram");
+                    _ram = getBank(_name, _currRamBank % _ramBankCnt, "ram");
                 }
             } else if (addr < 0x8000) {
                 // Banking mode select
@@ -66,22 +82,26 @@ module GameCart {
                 if (_bankingMode == MODE_ADVANCED) {
                     if (_ramBankCnt > 1) {
                         _currRamBank = _currRomBank >> 5;
-                        _ram = getBank(_currRamBank % _ramBankCnt, "ram");
+                        _ram = getBank(_name, _currRamBank % _ramBankCnt, "ram");
                     }
-                    _rom = getBank((_currRomBank & 0x60) % _romBankCnt, "rom");
+                    _rom = getBank(_name, (_currRomBank & 0x60) % _romBankCnt, "rom");
                 } else {
                     if (_currRamBank != 0) {
                         Storage.setValue("cart_" + _name + "_ram_bank_" + _currRamBank, _ram);
                         _currRamBank = 0;
-                        _ram = getBank(_currRamBank, "ram");
+                        _ram = getBank(_name, _currRamBank, "ram");
                     }
                     _rom = _rom.slice(0, 0x4000);
                 }
-                _rom.addAll(getBank(_currRomBank % _romBankCnt, "rom"));
+                _rom.addAll(getBank(_name, _currRomBank % _romBankCnt, "rom"));
             } else if (addr >= 0xA000 && _ramEnabled) {
                 // External RAM write
                 _ram[addr - 0xA000] = data;
             }
+        }
+
+        function save() as Void {
+            Storage.setValue("cart_" + _name + "_ram_bank_" + _currRamBank, _ram);
         }
     }
 }
