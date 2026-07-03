@@ -532,7 +532,7 @@ class GameBoyCPU {
     function op_inc_r(opcode as Number) as Void {
         var value = _regs[(opcode >> 3) & 0x07];
         var result = value + 1;
-        _nZFlag = result;
+        _nZFlag = result & 0xFF;
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         _regs[(opcode >> 3) & 0x07] = result & 0xFF;
@@ -542,7 +542,7 @@ class GameBoyCPU {
         var HL = (_regs[REG_H] << 8) | _regs[REG_L];
         var value = busRead(HL);
         var result = value + 1;
-        _nZFlag = result;
+        _nZFlag = result & 0xFF;
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         busWrite(HL, result & 0xFF);
@@ -551,7 +551,7 @@ class GameBoyCPU {
     function op_dec_r(opcode as Number) as Void {
         var value = _regs[(opcode >> 3) & 0x07];
         var result = value - 1;
-        _nZFlag = result;
+        _nZFlag = result & 0xFF;
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         _regs[(opcode >> 3) & 0x07] = result & 0xFF;
@@ -561,7 +561,7 @@ class GameBoyCPU {
         var HL = (_regs[REG_H] << 8) | _regs[REG_L];
         var value = busRead(HL);
         var result = value - 1;
-        _nZFlag = result;
+        _nZFlag = result & 0xFF;
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         busWrite(HL, result & 0xFF);
@@ -688,7 +688,7 @@ class GameBoyCPU {
     }
 
     function op_rla(opcode as Number) as Void {
-        var oldCFlag = _CFlag;
+        var oldCFlag = (_CFlag) ? 1 : 0;
         _CFlag = (_regs[REG_A] >> 7) & 0x1;
         _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
         _nZFlag = 1;
@@ -697,7 +697,7 @@ class GameBoyCPU {
     }
 
     function op_rra(opcode as Number) as Void {
-        var oldCFlag = _CFlag;
+        var oldCFlag = (_CFlag) ? 1 : 0;
         _CFlag = _regs[REG_A] & 0x1;
         _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
         _nZFlag = 1;
@@ -1047,10 +1047,12 @@ class GameBoyCPU {
             }
         }
         if (_NFlag != 0) {
-            _regs[REG_A] -= adj;
+            _regs[REG_A] = (_regs[REG_A] - adj) & 0xFF;
         } else {
-            _regs[REG_A] += adj;
+            _regs[REG_A] = (_regs[REG_A] + adj) & 0xFF;
         }
+        _nZFlag = _regs[REG_A]; 
+        _HFlag = 0;
     }
 
     function op_nop(opcode as Number) as Void {
@@ -1086,14 +1088,14 @@ class GameBoyCPU {
                     }
 
                     case CB_ROT_SHIFT_TYPE_RL: {
-                        var oldC = _CFlag;
+                        var oldC = (_CFlag) ? 1 : 0;
                         _CFlag = (value >> 7) & 0x1;
                         result = ((value << 1) | oldC) & 0xFF;
                         break;
                     }
 
                     case CB_ROT_SHIFT_TYPE_RR: {
-                        var oldC = _CFlag;
+                        var oldC = (_CFlag) ? 1 : 0;
                         _CFlag = value & 0x1;
                         result = (value >> 1) | (oldC << 7);
                         break;

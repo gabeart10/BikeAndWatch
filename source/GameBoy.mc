@@ -27,6 +27,7 @@ class GameBoy {
     private var _cpu as GameBoyCPU?;
     private var _timer as GameBoyTimer?;
     private var _ppu as GameBoyPPU?;
+    private var _serial as GameBoySerial?;
     private var _wram as ByteArray = new[8192]b;
     private var _dummyAudio as ByteArray = new[48]b;
     private var _joypadDirection as Number = 0xFF;
@@ -42,6 +43,7 @@ class GameBoy {
         _cpu = new GameBoyCPU(data, method(:busRead), method(:busWrite), method(:cycleMClock));
         _timer = new GameBoyTimer((_cpu as GameBoyCPU).method(:sendInt));
         _ppu = new GameBoyPPU((_cpu as GameBoyCPU).method(:sendInt), method(:ppuFrameDone));
+        _serial = new GameBoySerial((_cpu as GameBoyCPU).method(:sendInt));
         _eventCB.invoke(EVENT_READY);
     }
 
@@ -80,7 +82,11 @@ class GameBoy {
             return ret;
         } else if (addr < 0xFF03) {
             // Serial Transfer
-            return 0xFF;
+            if (PRINT_SERIAL) {
+                return (_serial as GameBoySerial).busRead(addr);
+            } else {
+                return 0xFF;
+            }
         } else if (addr < 0xFF08) {
             // Timer registers
             return (_timer as GameBoyTimer).busRead(addr);
@@ -116,6 +122,9 @@ class GameBoy {
         } else if (addr == 0xFF00) {
             // Joypad Input
             _joyp = (data & 0x30) | 0x0F;
+        } else if (PRINT_SERIAL && addr < 0xFF03) {
+            // Serial Transfer
+            (_serial as GameBoySerial).busWrite(addr, data);
         } else if (addr < 0xFF08) {
             // Timer registers
             (_timer as GameBoyTimer).busWrite(addr, data);
@@ -136,24 +145,32 @@ class GameBoy {
     }
 
     function emuCycle() as Void {
-        _cycleCount = 0;
-        var startTime = System.getTimer();
-        var waitTimeDelta = startTime - _lastTime; 
+        var startTime = 0;
+        var waitTimeDelta = 0;
+        if (PRINT_SPEED) {
+            _cycleCount = 0;
+            startTime = System.getTimer();
+            waitTimeDelta = startTime - _lastTime; 
+        }
+
         for (var i = 0; i < STEPS_PER_CYCLE; i++) {
             (_cpu as GameBoyCPU).step();
         }
-        _lastTime = System.getTimer();
 
-        var exeTimeDelta = _lastTime - startTime;
-        var speed = (_cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
-        System.println(format("Utilization: $1$% | $2$ MCycle/s", 
-            [((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
-        ));
+        if (PRINT_SPEED) {
+            _lastTime = System.getTimer();
+            var exeTimeDelta = _lastTime - startTime;
+            var speed = (_cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
+            System.println(format("Utilization: $1$% | $2$ MCycle/s", 
+                [((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
+            ));
+        }
     }
 
     function cycleMClock(mCycles as Number) as Void {
         (_timer as GameBoyTimer).step(mCycles);
         (_ppu as GameBoyPPU).step(mCycles);
+        (_serial as GameBoySerial).step(mCycles);
         _cycleCount += mCycles;
     }
 

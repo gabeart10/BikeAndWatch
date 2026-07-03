@@ -1,6 +1,8 @@
 import Toybox.Lang;
 
 const PRINT_TRACE as Boolean = false;
+const PRINT_SPEED as Boolean = false;
+const PRINT_SERIAL as Boolean = true;
 
 const STEPS_PER_CYCLE as Number = 9000;
 

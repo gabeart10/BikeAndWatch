@@ -138,7 +138,7 @@ class GameBoyPPU {
             // Check for object overwriting background/window color
             for (var objIdx = objStartIdx; objIdx < objsFound; objIdx++) {
                 var objOAMIdx = selOBJs[objIdx];
-                var objX = _oam[objOAMIdx + OBJBYTE_X_POS];
+                var objX = _oam[objOAMIdx + OBJBYTE_X_POS] - 8;
                 if (objX <= lineX) {
                     if (lineX < (objX + OBJ_WIDTH)) {
                         // Found possible OBJ
@@ -193,18 +193,6 @@ class GameBoyPPU {
         if (wEn && _yCond && _wx < SCREEN_WIDTH) {
             _wYPos++;
         }
-    }
-
-    private function checkStat() as Void {
-        var statTriggers = (((_lyc == _ly) ? 0x1 : 0x0) << 6) | (0x1 << (3 + _ppuMode));
-        statTriggers &= _stat;
-        var triggered = statTriggers != 0;
-
-        if (triggered && !_prevIntState) {
-            // Only interrupt on rising edge
-            _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
-        }
-        _prevIntState = triggered;
     }
 
     function initialize(sendCPUInt as GBCPUSendIntFunc, frameDoneCB as Method() as Void) {
@@ -284,8 +272,19 @@ class GameBoyPPU {
                         break;
                     }
                 }
+
                 // Check for STAT interrupt
-                checkStat();
+                if (_ppuMode != PPUMODE_DRAW) {
+                    var statTriggers = (((_lyc == _ly) ? 0x1 : 0x0) << 6) | (0x1 << (3 + _ppuMode));
+                    statTriggers &= _stat;
+                    var triggered = statTriggers != 0;
+
+                    if (triggered && !_prevIntState) {
+                        // Only interrupt on rising edge
+                        _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
+                    }
+                    _prevIntState = triggered;
+                }
             }
         }
     }
@@ -302,8 +301,7 @@ class GameBoyPPU {
             return _lcdc;
         } else if (addr == 0xFF41) {
             // LCD Status
-            _stat = (_stat & ~(0x7)) | (((_lyc == _ly) ? 0x1 : 0x0) << 2) | _ppuMode;
-            return _stat;
+            return _stat | (((_lyc == _ly) ? 0x1 : 0x0) << 2) | _ppuMode;
         } else if (addr == 0xFF42) {
             // Background Viewport Y
             return _scy;
@@ -330,7 +328,7 @@ class GameBoyPPU {
             return _wy;
         } else if (addr == 0xFF4B) {
             // Window X Pos
-            return _wx - 7;
+            return _wx + 7;
         }
         return 0xFF;
     }
@@ -356,7 +354,7 @@ class GameBoyPPU {
             _lcdc = data;
         } else if (addr == 0xFF41) {
             // LCD Status
-            _stat = data;
+            _stat = data & 0x78;
         } else if (addr == 0xFF42) {
             // Background Viewport Y
             _scy = data;
@@ -380,7 +378,7 @@ class GameBoyPPU {
             _wy = data;
         } else if (addr == 0xFF4B) {
             // Window X Pos
-            _wx = data + 7;
+            _wx = data - 7;
         }
     }
 }
