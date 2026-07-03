@@ -29,7 +29,9 @@ module GameCart {
         }
         private enum CartType {
             CART_ROM_ONLY = 0x00,
-            CART_MBC1 = 0x01
+            CART_MBC1 = 0x01,
+            CART_MBC1_RAM = 0x02,
+            CART_MBC1_RAM_BAT = 0x03,
         }
 
         static private var _manager as Manager?;
@@ -55,10 +57,19 @@ module GameCart {
             Storage.setValue("stored_carts", _storedCarts as Array<Storage.ValueType>);
         }
 
+        private function initRam(name as String, bankCnt as Number) as Void {
+            for (var i = 0; i < bankCnt; i++) {
+                if (Storage.getValue("cart_" + name + "_ram_bank_" + i) == null) {
+                    // Initialize RAM banks if they don't exist
+                    Storage.setValue("cart_" + name + "_ram_bank_" + i, new[8192]b);
+                }
+            }
+        }
+
+
         private function createCart(name as String) as GameCart {
             var type;
             var romBankCnt;
-            var ramBankCnt;
             {
                 // Limit bankZero scope so that it is not kept in memory during the GameCart initialization
                 var bankZero = (Storage.getValue("cart_" + name + "_rom_bank_0") as ByteArray?);
@@ -68,20 +79,17 @@ module GameCart {
                 }
                 type = bankZero[HEADER_CART_TYPE];
                 romBankCnt = 1 << (bankZero[HEADER_ROM_SIZE] + 1);
-                ramBankCnt = RAM_BANK_LOOKUP[bankZero[HEADER_RAM_SIZE]];
-
-                for (var i = 0; i < ramBankCnt; i++) {
-                    if (Storage.getValue("cart_" + name + "_ram_bank_" + i) == null) {
-                        // Initialize RAM banks if they don't exist
-                        Storage.setValue("cart_" + name + "_ram_bank_" + i, new[8192]b);
-                    }
-                }
             }
             switch (type) {
                 case CART_ROM_ONLY:
                     return new RomOnly(name);
                 case CART_MBC1:
-                    return new MBC1(name, romBankCnt, ramBankCnt);
+                    return new MBC1(name, romBankCnt, 0);
+                case CART_MBC1_RAM:
+                case CART_MBC1_RAM_BAT:
+                    // Always 32KiB of RAM
+                    initRam(name, 4);
+                    return new MBC1(name, romBankCnt, 4);
                 default:
                     System.println("Unsupported cart type: " + type + " for cart " + name);
                     throw new Lang.Exception();

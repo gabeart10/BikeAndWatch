@@ -104,7 +104,7 @@ class GameBoyCPU {
                 // BOOT ROM Lock
                 return _bootRom != null ? 1 : 0; 
             } else if (addr == 0xFF0F) {
-                return _if;
+                return _if | 0xE0;
             } else if (addr == 0xFFFF) {
                 return _ie;
             } else if (addr >= 0xFF80) {
@@ -200,7 +200,7 @@ class GameBoyCPU {
         var opcode = 0x00;
 
         // Check for Interrupt
-        if (_ime && (_if & _ie) != 0) {
+        if (_ime && (_if & _ie & 0x1F) != 0) {
             var if_copy = _if;
             _ime = false;
             for (var bit = 0; bit < INT_END; bit++) {
@@ -233,7 +233,7 @@ class GameBoyCPU {
 
                 case CPU_STATE_START_HALT: 
                 case CPU_STATE_HALTED: {
-                    if ((_if & _ie) != 0) {
+                    if ((_if & _ie & 0x1F) != 0) {
                         opcode = busRead(_pc);
                         // Simulate HALT Bug
                         if (_state != CPU_STATE_START_HALT) {
@@ -555,7 +555,7 @@ class GameBoyCPU {
         var value = _regs[(opcode >> 3) & 0x07];
         var result = value - 1;
         _nZFlag = result & 0xFF;
-        _NFlag = 0;
+        _NFlag = 1;
         _HFlag = (value ^ result) & 0x10;
         _regs[(opcode >> 3) & 0x07] = result & 0xFF;
     }
@@ -565,7 +565,7 @@ class GameBoyCPU {
         var value = busRead(HL);
         var result = value - 1;
         _nZFlag = result & 0xFF;
-        _NFlag = 0;
+        _NFlag = 1;
         _HFlag = (value ^ result) & 0x10;
         busWrite(HL, result & 0xFF);
     }
@@ -891,7 +891,7 @@ class GameBoyCPU {
 
 
     function op_ret_and_reti(opcode as Number) as Void {
-        if (opcode & 0x1) {
+        if (opcode & 0x10) {
             _ime = true;
         }
         _pc = busRead(_sp);

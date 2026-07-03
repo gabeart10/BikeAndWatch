@@ -1,12 +1,12 @@
 import Toybox.Lang;
 
-const ROM_TO_RUN as String = "interrupts";
+const ROM_TO_RUN as String = "dmg-acid2";
 
 const PRINT_TRACE as Boolean = false;
 const PRINT_SPEED as Boolean = false;
 const PRINT_SERIAL as Boolean = true;
 
-const STEPS_PER_CYCLE as Number = 19000;
+const STEPS_PER_CYCLE as Number = 20000;
 
 const EMU_CYCLE_MS as Number = 100;
 
