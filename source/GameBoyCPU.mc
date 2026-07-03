@@ -72,7 +72,7 @@ class GameBoyCPU {
 
     private function busRead(addr as Number) as Number {
         // Make sure memory is up to date
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
 
         if (PRINT_TRACE) {
             var data;
@@ -121,7 +121,7 @@ class GameBoyCPU {
 
     private function busWrite(addr as Number, data as Number) as Void {
         // Make sure memory is up to date
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
 
         if (addr == 0xFF50 && data == 0x1) {
             // BOOT ROM Lock
@@ -216,7 +216,9 @@ class GameBoyCPU {
                     _pc = 0x40 + (bit * 0x8);
                     // Make sure state is correct and add delay
                     _state = CPU_STATE_RUNNING;
-                    _extClockCycle.invoke(3);
+                    _extClockCycle.invoke();
+                    _extClockCycle.invoke();
+                    _extClockCycle.invoke();
                     break;
                 }
                 if_copy >>= 1;
@@ -240,7 +242,7 @@ class GameBoyCPU {
                         _state = CPU_STATE_RUNNING;
                     } else {
                         _state = CPU_STATE_HALTED;
-                        _extClockCycle.invoke(1);
+                        _extClockCycle.invoke();
                     }
                     break;
                 }
@@ -405,7 +407,7 @@ class GameBoyCPU {
 
     function op_ld_SP_HL(opcode as Number) as Void {
         _sp = (_regs[REG_H] << 8) | _regs[REG_L];
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_ld_HL_SP_s8(opcode as Number) as Void {
@@ -419,7 +421,7 @@ class GameBoyCPU {
         _HFlag = (_sp ^ offset ^ result) & 0x10;
         _CFlag = result & 0x100;
         _pc++;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     } 
 
     function op_add_r(opcode as Number) as Void {
@@ -570,13 +572,13 @@ class GameBoyCPU {
     function op_inc_rr(opcode as Number) as Void {
         var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
         set16BitReg(reg, get16BitReg(reg) + 1);
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_dec_rr(opcode as Number) as Void {
         var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
         set16BitReg(reg, get16BitReg(reg) - 1);
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_add_HL_rr(opcode as Number) as Void {
@@ -587,7 +589,7 @@ class GameBoyCPU {
         _NFlag = 0;
         _HFlag = (HL ^ reg ^ result) & 0x1000;
         _CFlag = result & 0x10000;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_and_r(opcode as Number) as Void {
@@ -713,7 +715,7 @@ class GameBoyCPU {
 
     function op_jp_u16(opcode as Number) as Void {
         _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_jp_hl(opcode as Number) as Void {
@@ -723,46 +725,46 @@ class GameBoyCPU {
     function op_jp_nz(opcode as Number) as Void {
         if (_nZFlag) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_jp_z(opcode as Number) as Void {
-        if (_nZFlag) {
+        if (_nZFlag == 0) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_jp_nc(opcode as Number) as Void {
         if (_CFlag == 0) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_jp_c(opcode as Number) as Void {
         if (_CFlag) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_jr_s8(opcode as Number) as Void {
         _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_jr_nz(opcode as Number) as Void {
@@ -771,7 +773,7 @@ class GameBoyCPU {
         } else {
             _pc++;
         }
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_jr_z(opcode as Number) as Void {
@@ -780,7 +782,7 @@ class GameBoyCPU {
         } else {
             _pc++;
         }
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_jr_nc(opcode as Number) as Void {
@@ -789,7 +791,7 @@ class GameBoyCPU {
         } else {
             _pc++;
         }
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_jr_c(opcode as Number) as Void {
@@ -798,7 +800,7 @@ class GameBoyCPU {
         } else {
             _pc++;
         }
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_call_u16(opcode as Number) as Void {
@@ -811,7 +813,7 @@ class GameBoyCPU {
         _sp--;
         busWrite(_sp, _pc & 0xFF);
         _pc = callAddr;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_call_nz(opcode as Number) as Void {
@@ -825,11 +827,11 @@ class GameBoyCPU {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_call_z(opcode as Number) as Void {
@@ -843,11 +845,11 @@ class GameBoyCPU {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_call_nc(opcode as Number) as Void {
@@ -861,11 +863,11 @@ class GameBoyCPU {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_call_c(opcode as Number) as Void {
@@ -879,11 +881,11 @@ class GameBoyCPU {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
-            _extClockCycle.invoke(1);
         } else {
             _pc += 2;
-            _extClockCycle.invoke(2);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
 
@@ -895,7 +897,7 @@ class GameBoyCPU {
         _sp += 1;
         _pc |= busRead(_sp) << 8; 
         _sp += 1;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_ret_nz(opcode as Number) as Void {
@@ -904,10 +906,9 @@ class GameBoyCPU {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            _extClockCycle.invoke(2);
-        } else {
-            _extClockCycle.invoke(1);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_ret_z(opcode as Number) as Void {
@@ -916,10 +917,9 @@ class GameBoyCPU {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            _extClockCycle.invoke(2);
-        } else {
-            _extClockCycle.invoke(1);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_ret_nc(opcode as Number) as Void {
@@ -928,10 +928,9 @@ class GameBoyCPU {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            _extClockCycle.invoke(2);
-        } else {
-            _extClockCycle.invoke(1);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_ret_c(opcode as Number) as Void {
@@ -940,10 +939,9 @@ class GameBoyCPU {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            _extClockCycle.invoke(2);
-        } else {
-            _extClockCycle.invoke(1);
+            _extClockCycle.invoke();
         }
+        _extClockCycle.invoke();
     }
 
     function op_rst(opcode as Number) as Void {
@@ -952,7 +950,7 @@ class GameBoyCPU {
         _sp -= 1;
         busWrite(_sp, _pc & 0xFF);
         _pc = opcode & 0x38;
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_ccf(opcode as Number) as Void {
@@ -973,7 +971,7 @@ class GameBoyCPU {
         busWrite(_sp, pushData >> 8);
         _sp -= 1;
         busWrite(_sp, pushData & 0xFF);
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_push_AF(opcode as Number) as Void {
@@ -986,7 +984,7 @@ class GameBoyCPU {
         busWrite(_sp, pushData >> 8);
         _sp -= 1;
         busWrite(_sp, pushData & 0xFF);
-        _extClockCycle.invoke(1);
+        _extClockCycle.invoke();
     }
 
     function op_pop_rr(opcode as Number) as Void {
@@ -1019,7 +1017,8 @@ class GameBoyCPU {
 
         _sp = result & 0xFFFF;
         _pc++;
-        _extClockCycle.invoke(2);
+        _extClockCycle.invoke();
+        _extClockCycle.invoke();
     }
 
     function op_di(opcode as Number) as Void {

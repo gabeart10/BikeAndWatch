@@ -5,7 +5,7 @@ import Toybox.Timer;
 
 typedef GBBusRead as Method(addr as Number) as Number;
 typedef GBBusWrite as Method(addr as Number, data as Number) as Void;
-typedef GBClockCycle as Method(mCycles as Number) as Void;
+typedef GBClockCycle as Method() as Void;
 
 class GameBoy {
     enum Event {
@@ -167,11 +167,13 @@ class GameBoy {
         }
     }
 
-    function cycleMClock(mCycles as Number) as Void {
-        (_timer as GameBoyTimer).step(mCycles);
-        (_ppu as GameBoyPPU).step(mCycles);
-        (_serial as GameBoySerial).step(mCycles);
-        _cycleCount += mCycles;
+    function cycleMClock() as Void {
+        (_timer as GameBoyTimer).step();
+        (_ppu as GameBoyPPU).step();
+        (_serial as GameBoySerial).step();
+        if (PRINT_SPEED) {
+            _cycleCount++;
+        }
     }
 
     function initialize(eventCB as Method(Event) as Void) {

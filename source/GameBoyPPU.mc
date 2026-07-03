@@ -215,76 +215,73 @@ class GameBoyPPU {
         return _bitmap;
     }
 
-    function step(mCycles as Number) as Void {
+    function step() as Void {
         if ((_lcdc & 0x80) == 0) {
             return;
         }
         
-        while (mCycles > 0) {
-            _ppuModeTick--;
-            mCycles--;
-            if (_ppuModeTick == 0) {
-                switch (_ppuMode) {
-                    case PPUMODE_OAM_SCAN: {
-                        _ppuMode = PPUMODE_DRAW;
-                        _ppuModeTick = PPUCYCLE_DRAW;
-                        if (_ly == _wy) {
-                            _yCond = true;
-                        }
-                        if (_frameSkipCount == 0) {
-                            drawLine();
-                        }
-                        break;
+        _ppuModeTick--;
+        if (_ppuModeTick == 0) {
+            switch (_ppuMode) {
+                case PPUMODE_OAM_SCAN: {
+                    _ppuMode = PPUMODE_DRAW;
+                    _ppuModeTick = PPUCYCLE_DRAW;
+                    if (_ly == _wy) {
+                        _yCond = true;
                     }
-
-                    case PPUMODE_DRAW: {
-                        _ppuMode = PPUMODE_HBLANK;
-                        _ppuModeTick = PPUCYCLE_HBLANK;
-                        break;
+                    if (_frameSkipCount == 0) {
+                        drawLine();
                     }
-
-                    case PPUMODE_HBLANK: {
-                        _ly++;
-                        if (_ly == SCREEN_HEIGHT) {
-                            _frameDoneCB.invoke();
-                            _sendCPUInt.invoke(GameBoyCPU.INT_VBLANK);
-                            _ppuMode = PPUMODE_VBLANK;
-                            _ppuModeTick = PPUCYCLE_VBLANK;
-                        } else {
-                            _ppuMode = PPUMODE_OAM_SCAN;
-                            _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                        }
-                        break;
-                    }
-
-                    case PPUMODE_VBLANK: {
-                        _ly++;
-                        if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
-                            _ly = 0;
-                            _wYPos = 0;
-                            _yCond = false;
-                            _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
-                            _ppuMode = PPUMODE_OAM_SCAN;
-                            _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                        } else {
-                            _ppuModeTick = PPUCYCLE_VBLANK;
-                        }
-                        break;
-                    }
+                    break;
                 }
 
-                // Check for STAT interrupt
-                if (_ppuMode != PPUMODE_DRAW) {
-                    var statTriggers = (((_lyc == _ly) ? 0x1 : 0x0) << 6) | (0x1 << (3 + _ppuMode));
-                    statTriggers &= _stat;
-                    var triggered = statTriggers != 0;
-
-                    if (triggered && !_prevIntState) {
-                        // Only interrupt on rising edge
-                        _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
-                    }
-                    _prevIntState = triggered;
+                case PPUMODE_DRAW: {
+                    _ppuMode = PPUMODE_HBLANK;
+                    _ppuModeTick = PPUCYCLE_HBLANK;
+                    break;
                 }
+
+                case PPUMODE_HBLANK: {
+                    _ly++;
+                    if (_ly == SCREEN_HEIGHT) {
+                        _frameDoneCB.invoke();
+                        _sendCPUInt.invoke(GameBoyCPU.INT_VBLANK);
+                        _ppuMode = PPUMODE_VBLANK;
+                        _ppuModeTick = PPUCYCLE_VBLANK;
+                    } else {
+                        _ppuMode = PPUMODE_OAM_SCAN;
+                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                    }
+                    break;
+                }
+
+                case PPUMODE_VBLANK: {
+                    _ly++;
+                    if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
+                        _ly = 0;
+                        _wYPos = 0;
+                        _yCond = false;
+                        _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
+                        _ppuMode = PPUMODE_OAM_SCAN;
+                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
+                    } else {
+                        _ppuModeTick = PPUCYCLE_VBLANK;
+                    }
+                    break;
+                }
+            }
+
+            // Check for STAT interrupt
+            if (_ppuMode != PPUMODE_DRAW) {
+                var statTriggers = (((_lyc == _ly) ? 0x1 : 0x0) << 6) | (0x1 << (3 + _ppuMode));
+                statTriggers &= _stat;
+                var triggered = statTriggers != 0;
+
+                if (triggered && !_prevIntState) {
+                    // Only interrupt on rising edge
+                    _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
+                }
+                _prevIntState = triggered;
             }
         }
     }

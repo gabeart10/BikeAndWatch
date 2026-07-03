@@ -12,10 +12,10 @@ class GameBoySerial {
         _sendCPUInt = sendCPUInt;
     }
 
-    function step(mCycles as Number) as Void {
-        _cycleCnt += mCycles;
-        if (_cycleCnt >= 128) {
-            _cycleCnt -= 128;
+    function step() as Void {
+        _cycleCnt++;
+        if (_cycleCnt == 128) {
+            _cycleCnt = 0;
             if ((_sc & 0x81) == 0x81) {
                 _sb <<= 1;
                 _shiftCnt++;

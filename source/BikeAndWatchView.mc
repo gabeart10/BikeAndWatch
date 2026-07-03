@@ -53,7 +53,7 @@ class BikeAndWatchView extends WatchUi.View {
     function gbEventHandler(event as GameBoy.Event) as Void {
         switch (event) {
             case GameBoy.EVENT_READY: {
-                _gcManager.getCart("cpu_instrs", method(:cartReady));
+                _gcManager.getCart(ROM_TO_RUN, method(:cartReady));
             } break;
             
             case GameBoy.EVENT_FRAME_DONE: {
