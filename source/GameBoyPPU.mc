@@ -1,5 +1,6 @@
 import Toybox.Lang;
 import Toybox.Graphics;
+import Toybox.System;
 
 class GameBoyPPU {
     static const SCREEN_WIDTH = 160;
@@ -217,7 +218,7 @@ class GameBoyPPU {
         if (bitmap != null) {
             _bitmap = bitmap as Graphics.BufferedBitmap;
         } else {
-            // Failed to create PPU bitmap
+            System.println("Failed to create PPU bitmap");
             throw new Lang.Exception();
         }
     }

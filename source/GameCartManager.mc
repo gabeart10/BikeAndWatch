@@ -1,11 +1,16 @@
 import Toybox.Lang;
 import Toybox.Application;
+import Toybox.System;
 
 module GameCart {
     class Manager {
         typedef ReadyCallback as Method(gc as GameCart) as Void;
-        private const HEADER_CART_TYPE as Number = 0x147;
-        private const HEADER_ROM_SIZE as Number = 0x148;
+        private const RAM_BANK_LOOKUP as Array<Number> = [0, 0, 1, 4, 16, 8];
+        private enum CartHeader {
+            HEADER_CART_TYPE = 0x147,
+            HEADER_ROM_SIZE = 0x148,
+            HEADER_RAM_SIZE = 0x149
+        }
         private enum CartType {
             CART_ROM_ONLY = 0x00,
             CART_MBC1 = 0x01
@@ -36,18 +41,33 @@ module GameCart {
 
         private function createCart(name as String) as GameCart {
             var type;
+            var romBankCnt;
+            var ramBankCnt;
             {
                 // Limit bankZero scope so that it is not kept in memory during the GameCart initialization
-                var bankZero = Storage.getValue("cart_" + name + "_bank_0");
+                var bankZero = (Storage.getValue("cart_" + name + "_rom_bank_0") as ByteArray?);
                 if (bankZero == null) {
+                    System.println("Missing ROM bank 0 for cart " + name);
                     throw new Lang.Exception();
                 }
-                type = (bankZero as ByteArray)[HEADER_CART_TYPE];
+                type = bankZero[HEADER_CART_TYPE];
+                romBankCnt = 1 << (bankZero[HEADER_ROM_SIZE] + 1);
+                ramBankCnt = RAM_BANK_LOOKUP[bankZero[HEADER_RAM_SIZE]];
+
+                for (var i = 0; i < ramBankCnt; i++) {
+                    if (Storage.getValue("cart_" + name + "_ram_bank_" + i) == null) {
+                        // Initialize RAM banks if they don't exist
+                        Storage.setValue("cart_" + name + "_ram_bank_" + i, new[8192]b);
+                    }
+                }
             }
             switch (type) {
                 case CART_ROM_ONLY:
                     return new GameCart(name);
+                case CART_MBC1:
+                    return new MBC1(name, romBankCnt, ramBankCnt);
                 default:
+                    System.println("Unsupported cart type: " + type + " for cart " + name);
                     throw new Lang.Exception();
             }      
         } 
@@ -55,12 +75,12 @@ module GameCart {
         function bankReady(data as ByteArray, requestString as String) as Void {
             if (_currBank == 0) {
                 // Store bank 0
-                Storage.setValue("cart_" + _currRomName + "_bank_0", data);
+                Storage.setValue("cart_" + _currRomName + "_rom_bank_0", data);
                 _currBank++;
                 _requester.getData(_currRomName + "/1");
                 _maxBanks = 1 << (data[HEADER_ROM_SIZE] + 1);
             } else {
-                Storage.setValue("cart_" + _currRomName + "_bank_" + _currBank, data);
+                Storage.setValue("cart_" + _currRomName + "_rom_bank_" + _currBank, data);
                 _currBank++;
                 if (_currBank < _maxBanks) {
                     _requester.getData(_currRomName + "/" + _currBank);
@@ -85,6 +105,7 @@ module GameCart {
 
         function getCart(romName as String, cb as ReadyCallback) as Void {
             if (_inProcess) {
+                System.println("Cart load already in progress: " + romName);
                 throw new Lang.Exception();
             }
 

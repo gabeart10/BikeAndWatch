@@ -150,7 +150,8 @@ class GameBoyCPU {
             case REG_SP:
                 return _sp;
             default:
-                throw new Lang.Exception(); // Invalid 16-bit register
+                System.println("Invalid 16-bit register: " + reg);
+                throw new Lang.Exception();
         }
     }
 
@@ -172,7 +173,8 @@ class GameBoyCPU {
                 _sp = value & 0xFFFF;
                 break;
             default:
-                throw new Lang.Exception(); // Invalid 16-bit register
+                System.println("Invalid 16-bit register: " + reg);
+                throw new Lang.Exception();
         }
     }
 
@@ -1055,7 +1057,8 @@ class GameBoyCPU {
     }
 
     function op_invalid(opcode as Number) as Void {
-        throw new Lang.Exception(); // Opcode not implemented
+        System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+        throw new Lang.Exception();
     }
 
     // TODO: Look at if performance gains are worth converting this to per op functions

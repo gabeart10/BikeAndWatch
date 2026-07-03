@@ -1,6 +1,7 @@
 import Toybox.Lang;
 import Toybox.Communications;
 import Toybox.StringUtil;
+import Toybox.System;
 
 class ExternalDataRequester {
     private var _callBack as Method(ByteArray, String) as Void;
@@ -13,7 +14,8 @@ class ExternalDataRequester {
         if (responseCode == 200) {
             _callBack.invoke(StringUtil.convertEncodedString(data, {:fromRepresentation => StringUtil.REPRESENTATION_STRING_BASE64, :toRepresentation => StringUtil.REPRESENTATION_BYTE_ARRAY}), _requestString);
         } else {
-            throw new Lang.Exception(); // TODO: Make Custom Exception
+            System.println("HTTP " + responseCode + " for request " + _requestString);
+            throw new Lang.Exception();
         }
     }
 
@@ -23,7 +25,8 @@ class ExternalDataRequester {
 
     function getData(requestString as String) as Void {
         if (_inProgress) {
-            throw new Lang.Exception(); // TODO: Make Custom Exception
+            System.println("Request already in progress (tried " + requestString + ")");
+            throw new Lang.Exception();
         }
         _inProgress = true;
         _requestString = requestString;
