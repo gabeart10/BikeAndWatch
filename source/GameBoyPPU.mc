@@ -16,6 +16,13 @@ class GameBoyPPU {
         PPUMODE_OAM_SCAN = 2,
         PPUMODE_DRAW = 3
     }
+    private enum StatInt {
+        STAT_INT_HBLANK = 0x08,
+        STAT_INT_VBLANK = 0x10,
+        STAT_INT_OAM_SCAN = 0x20,
+        STAT_INT_DRAW = 0x00,
+        STAT_INT_LYC = 0x40
+    }
     private enum PPUCycle {
         PPUCYCLE_HBLANK = 51,
         PPUCYCLE_VBLANK = 114,
@@ -50,6 +57,7 @@ class GameBoyPPU {
     private var _sendCPUInt as GBCPUSendIntFunc;
     private var _bitmap as BufferedBitmap;
     private var _prevIntState as Boolean = false;
+    private var _checkStat as Boolean = false;
     private var _vram as ByteArray = new[8192]b;
     private var _oam as ByteArray = new[160]b;
     private var _lcdc as Number = 0; // LCD Control
@@ -57,6 +65,7 @@ class GameBoyPPU {
     private var _lyc as Number = 0; // LY Compare
     private var _ppuModeTick as Number = PPUCYCLE_OAM_SCAN;
     private var _ppuMode as Number = PPUMODE_OAM_SCAN;
+    private var _ppuModeStat as Number = STAT_INT_OAM_SCAN;
     private var _stat as Number = 0; // LCD Status
     private var _scy as Number = 0; // Background Viewport Y
     private var _scx as Number = 0; // Background Viewport X
@@ -77,15 +86,17 @@ class GameBoyPPU {
         // Get OBJs on line
         if (_lcdc & LCDCBIT_OBJ_EN) {
             for (var oamIdx = 0; oamIdx < 160; oamIdx += 4) {
-                var objYScreen = _oam[oamIdx + OBJBYTE_Y_POS] - 17;
+                var objYScreen = _oam[oamIdx + OBJBYTE_Y_POS] - 16;
                 if (objYScreen <= _ly && _ly < (objYScreen + objHeight)) {
-                    selOBJs.add(oamIdx);
+                    // Add X Pos to 2nd Byte to allow for correct priority sorting
+                    selOBJs.add((_oam[oamIdx + OBJBYTE_X_POS] << 8) | oamIdx);
                     if (selOBJs.size() == OBJ_LIM) {
                         // Reached OBJ Limit per Line
                         break;
                     }
                 }
             }
+            selOBJs.sort(null);
         }
 
         var objsFound = selOBJs.size();
@@ -128,7 +139,7 @@ class GameBoyPPU {
                 if (tileDataAddrMode) {
                     tileDataIdx += baseTileIdx * 16;
                 } else {
-                    tileDataIdx += 0x800 + ((baseTileIdx << 24) >> 24) * 16;
+                    tileDataIdx += 0x1000 + ((baseTileIdx << 24) >> 24) * 16;
                 }
                 baseColorIdx = ((_vram[tileDataIdx + 1] >> (baseTileX as Number)) & 0x1) << 1;
                 baseColorIdx |= (_vram[tileDataIdx] >> (baseTileX as Number)) & 0x1;
@@ -137,11 +148,12 @@ class GameBoyPPU {
 
             // Check for object overwriting background/window color
             for (var objIdx = objStartIdx; objIdx < objsFound; objIdx++) {
-                var objOAMIdx = selOBJs[objIdx];
-                var objX = _oam[objOAMIdx + OBJBYTE_X_POS] - 8;
+                // Fetch X pos from 2nd Byte
+                var objX = (selOBJs[objIdx] >> 8) - 8;
                 if (objX <= lineX) {
                     if (lineX < (objX + OBJ_WIDTH)) {
                         // Found possible OBJ
+                        var objOAMIdx = selOBJs[objIdx] & 0xFF;
                         var objAttr = _oam[objOAMIdx + OBJBYTE_ATTR];
                         var objTileIdx = _oam[objOAMIdx + OBJBYTE_TILE_IDX];
                         var objTileX;
@@ -154,9 +166,9 @@ class GameBoyPPU {
                         objTileIdx *= 16;
 
                         if (objAttr & OBJATTRBIT_X_FLIP) {
-                            objTileX = _oam[objOAMIdx + OBJBYTE_X_POS] - lineX - 1;
+                            objTileX = lineX - objX;
                         } else {
-                            objTileX = lineX - (_oam[objOAMIdx + OBJBYTE_X_POS] - 8);
+                            objTileX = 7 - (lineX - objX);
                         }
 
                         objTileY = _ly - (_oam[objOAMIdx + OBJBYTE_Y_POS] - 16);
@@ -225,18 +237,20 @@ class GameBoyPPU {
             switch (_ppuMode) {
                 case PPUMODE_OAM_SCAN: {
                     _ppuMode = PPUMODE_DRAW;
+                    _ppuModeStat = STAT_INT_DRAW;
                     _ppuModeTick = PPUCYCLE_DRAW;
+                    break;
+                }
+
+                case PPUMODE_DRAW: {
                     if (_ly == _wy) {
                         _yCond = true;
                     }
                     if (_frameSkipCount == 0) {
                         drawLine();
                     }
-                    break;
-                }
-
-                case PPUMODE_DRAW: {
                     _ppuMode = PPUMODE_HBLANK;
+                    _ppuModeStat = STAT_INT_HBLANK; 
                     _ppuModeTick = PPUCYCLE_HBLANK;
                     break;
                 }
@@ -247,9 +261,11 @@ class GameBoyPPU {
                         _frameDoneCB.invoke();
                         _sendCPUInt.invoke(GameBoyCPU.INT_VBLANK);
                         _ppuMode = PPUMODE_VBLANK;
+                        _ppuModeStat = STAT_INT_VBLANK;
                         _ppuModeTick = PPUCYCLE_VBLANK;
                     } else {
                         _ppuMode = PPUMODE_OAM_SCAN;
+                        _ppuModeStat = STAT_INT_OAM_SCAN;
                         _ppuModeTick = PPUCYCLE_OAM_SCAN;
                     }
                     break;
@@ -263,6 +279,7 @@ class GameBoyPPU {
                         _yCond = false;
                         _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
                         _ppuMode = PPUMODE_OAM_SCAN;
+                        _ppuModeStat = STAT_INT_OAM_SCAN;
                         _ppuModeTick = PPUCYCLE_OAM_SCAN;
                     } else {
                         _ppuModeTick = PPUCYCLE_VBLANK;
@@ -270,19 +287,18 @@ class GameBoyPPU {
                     break;
                 }
             }
+            _checkStat = true;
+        }
 
-            // Check for STAT interrupt
-            if (_ppuMode != PPUMODE_DRAW) {
-                var statTriggers = (((_lyc == _ly) ? 0x1 : 0x0) << 6) | (0x1 << (3 + _ppuMode));
-                statTriggers &= _stat;
-                var triggered = statTriggers != 0;
-
-                if (triggered && !_prevIntState) {
-                    // Only interrupt on rising edge
-                    _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
-                }
-                _prevIntState = triggered;
+        // Check for STAT interrupt
+        if (_checkStat) {
+            _checkStat = false;
+            var triggered = ((((_lyc == _ly) ? STAT_INT_LYC : 0x00) | _ppuModeStat) & _stat) != 0;
+            if (triggered && !_prevIntState) {
+                // Only interrupt on rising edge
+                _sendCPUInt.invoke(GameBoyCPU.INT_LCD);
             }
+            _prevIntState = triggered;
         }
     }
 
@@ -346,12 +362,17 @@ class GameBoyPPU {
                 _yCond = false;
                 _frameSkipCount = 0;
                 _ppuMode = PPUMODE_OAM_SCAN;
+                _ppuModeStat = STAT_INT_OAM_SCAN;
                 _ppuModeTick = PPUCYCLE_OAM_SCAN;
             }
             _lcdc = data;
+            if ((_lcdc & LCDCBIT_BG_WIN_EN) == 0) {
+                System.print("");
+            }
         } else if (addr == 0xFF41) {
             // LCD Status
             _stat = data & 0x78;
+            _checkStat = true;
         } else if (addr == 0xFF42) {
             // Background Viewport Y
             _scy = data;
@@ -361,6 +382,7 @@ class GameBoyPPU {
         } else if (addr == 0xFF45) {
             // LY Compare
             _lyc = data;
+            _checkStat = true;
         } else if (addr == 0xFF47) {
             // BG Palette Data
             _bgp = data;

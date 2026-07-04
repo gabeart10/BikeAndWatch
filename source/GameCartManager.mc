@@ -21,11 +21,9 @@ module GameCart {
 
     class Manager {
         typedef ReadyCallback as Method(gc as GameCart) as Void;
-        private const RAM_BANK_LOOKUP as Array<Number> = [0, 0, 1, 4, 16, 8];
         private enum CartHeader {
             HEADER_CART_TYPE = 0x147,
             HEADER_ROM_SIZE = 0x148,
-            HEADER_RAM_SIZE = 0x149
         }
         private enum CartType {
             CART_ROM_ONLY = 0x00,

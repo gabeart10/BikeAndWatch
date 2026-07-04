@@ -201,10 +201,10 @@ class GameBoyCPU {
 
         // Check for Interrupt
         if (_ime && (_if & _ie & 0x1F) != 0) {
-            var if_copy = _if;
+            var readyInts = _if & _ie;
             _ime = false;
             for (var bit = 0; bit < INT_END; bit++) {
-                if (if_copy & 0x1) {
+                if (readyInts & 0x1) {
                     // Clear Interrupt Flag
                     _if &= ~(0x1 << bit);
                     // Push PC to Stack
@@ -221,7 +221,7 @@ class GameBoyCPU {
                     _extClockCycle.invoke();
                     break;
                 }
-                if_copy >>= 1;
+                readyInts >>= 1;
             } 
         } else {
             switch (_state) {
