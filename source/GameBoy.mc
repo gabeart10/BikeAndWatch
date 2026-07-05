@@ -126,10 +126,11 @@ class GameBoy {
     private var _eventCB as Method(Event) as Void;
     private var _mainTimer as Timer.Timer = new Timer.Timer();
     private var _lastTime as Number = 0;
+    private var _lastWaitTime as Number = 0;
+    private var _waitTime as Number = 0;
     private var _cycleCount as Number = 0;
 
     // CPU
-    private var _skipReadPrint as Boolean = true;
     private var _printEnable as Boolean = false;
     private var _hram as ByteArray = new[127]b;
     private var _state as CPUState = CPU_STATE_RUNNING;
@@ -248,18 +249,21 @@ class GameBoy {
             _lastTime = System.getTimer();
             var renderFPS = 1000.0 / frameTimeDelta;
             if (PRINT_MCPS) {
-                System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s", [
+                System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s | $4$% Idle", [
                     renderFPS.format("%.3f"), 
                     (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
-                    ((_cycleCount * 1000) / frameTimeDelta).format("%d")
+                    ((_cycleCount * 1000) / frameTimeDelta).format("%d"),
+                    ((_waitTime * 100) / frameTimeDelta).format("%d")
                 ]));
                 _cycleCount = 0;
             } else {
-                System.println(format("$1$ Render FPS | $2$ System FPS", [
+                System.println(format("$1$ Render FPS | $2$ System FPS | $3$% Idle", [
                     renderFPS.format("%.3f"), 
-                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f")
+                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
+                    ((_waitTime * 100) / frameTimeDelta).format("%d")
                 ]));
             }
+            _waitTime = 0;
         }
     }
 
@@ -488,6 +492,7 @@ class GameBoy {
     }
 
     function emuCycle() as Void {
+        _waitTime += System.getTimer() - _lastWaitTime;
         for (var i = 0; i < STEPS_PER_CYCLE; i++) {
             var opcode = 0x00;
 
@@ -543,8 +548,8 @@ class GameBoy {
 
             if (PRINT_TRACE) {
                 if (_printEnable) {
-                    System.print(
-                        "\n0x" + (_pc - 1).format("%04X")
+                    System.println(
+                        "0x" + (_pc - 1).format("%04X")
                         + " " + _opStrings[opcode]
                         + " | SP:0x" + _sp.format("%04X")
                         + " A:0x" + _regs[REG_A].format("%02X")
@@ -565,16 +570,13 @@ class GameBoy {
             // Run opcode function
             _opLookup[opcode].invoke(opcode);
 
-            if (PRINT_TRACE) {
-                _skipReadPrint = true;
-            }
-
             // Don't process _imeNext if Op EI just ran
             if (_imeNext && opcode != 0xFB) {
                 _imeNext = false;
                 _ime = true;
             }
         }
+        _lastWaitTime = System.getTimer();
     }
 
     private function drawLine() as Void {
