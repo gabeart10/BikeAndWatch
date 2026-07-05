@@ -7,7 +7,7 @@ const PRINT_FPS as Boolean = true;
 const PRINT_MCPS as Boolean = false;
 const PRINT_SERIAL as Boolean = false;
 
-const STEPS_PER_CYCLE as Number = 10000;
+const STEPS_PER_CYCLE as Number = 5000;
 
 const EMU_CYCLE_MS as Number = 50;
 
