@@ -40,16 +40,23 @@ class GameBoy {
     function ppuFrameDone() as Void {
         _eventCB.invoke(EVENT_FRAME_DONE);
 
-        if (PRINT_SPEED) {
+        if (PRINT_FPS) {
             var frameTimeDelta = System.getTimer() - _lastTime;
             _lastTime = System.getTimer();
             var renderFPS = 1000.0 / frameTimeDelta;
-            System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s", [
-                renderFPS.format("%.3f"), 
-                (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
-                 ((_cycleCount * 1000) / frameTimeDelta).format("%d")
-            ]));
-            _cycleCount = 0;
+            if (PRINT_MCPS) {
+                System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s", [
+                    renderFPS.format("%.3f"), 
+                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
+                    ((_cycleCount * 1000) / frameTimeDelta).format("%d")
+                ]));
+                _cycleCount = 0;
+            } else {
+                System.println(format("$1$ Render FPS | $2$ System FPS", [
+                    renderFPS.format("%.3f"), 
+                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f")
+                ]));
+            }
         }
     }
 
@@ -147,17 +154,19 @@ class GameBoy {
     }
 
     function emuCycle() as Void {
-
+        var cpuStep = _cpu.method(:step);
         for (var i = 0; i < STEPS_PER_CYCLE; i++) {
-            _cpu.step();
+            cpuStep.invoke();
         }
     }
 
     function cycleMClock() as Void {
         _timer.step();
         _ppu.step();
-        _serial.step();
-        if (PRINT_SPEED) {
+        if (PRINT_SERIAL) {
+            _serial.step();
+        }
+        if (PRINT_FPS && PRINT_MCPS) {
             _cycleCount++;
         }
     }

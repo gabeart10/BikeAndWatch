@@ -74,16 +74,20 @@ class GameBoyCPU {
         _extClockCycle.invoke();
 
         if (PRINT_TRACE) {
-            var data;
-            if (addr == 0xFF0F) {
-                data = _if;
-            } else if (addr == 0xFFFF) {
-                data = _ie;
-            } else if (addr >= 0xFF80) {
-                // HRAM
-                data = _hram[addr - 0xFF80];
-            } else {
+            var data = 0xFF;
+            if (addr < 0xFF0F) {
                 data = _extBusRead.invoke(addr);
+            } else {
+                if (addr == 0xFF0F) {
+                    data = _if;
+                } else if (addr == 0xFFFF) {
+                    data = _ie;
+                } else if (addr >= 0xFF80) {
+                    // HRAM
+                    data = _hram[addr - 0xFF80];
+                } else {
+                    data = _extBusRead.invoke(addr);
+                }
             }
 
             if (!_skipReadPrint && _printEnable) {
@@ -93,15 +97,19 @@ class GameBoyCPU {
             }
             return data;
         } else {
-            if (addr == 0xFF0F) {
-                return _if | 0xE0;
-            } else if (addr == 0xFFFF) {
-                return _ie;
-            } else if (addr >= 0xFF80) {
-                // HRAM
-                return _hram[addr - 0xFF80];
-            } else {
+            if (addr < 0xFF0F) {
                 return _extBusRead.invoke(addr);
+            } else {
+                if (addr == 0xFF0F) {
+                    return _if | 0xE0;
+                } else if (addr == 0xFFFF) {
+                    return _ie;
+                } else if (addr >= 0xFF80) {
+                    // HRAM
+                    return _hram[addr - 0xFF80];
+                } else {
+                    return _extBusRead.invoke(addr);
+                }
             }
         }
     }
