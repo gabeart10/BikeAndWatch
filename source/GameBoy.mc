@@ -39,6 +39,18 @@ class GameBoy {
 
     function ppuFrameDone() as Void {
         _eventCB.invoke(EVENT_FRAME_DONE);
+
+        if (PRINT_SPEED) {
+            var frameTimeDelta = System.getTimer() - _lastTime;
+            _lastTime = System.getTimer();
+            var renderFPS = 1000.0 / frameTimeDelta;
+            System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s", [
+                renderFPS.format("%.3f"), 
+                (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
+                 ((_cycleCount * 1000) / frameTimeDelta).format("%d")
+            ]));
+            _cycleCount = 0;
+        }
     }
 
     function busRead(addr as Number) as Number {
@@ -135,25 +147,9 @@ class GameBoy {
     }
 
     function emuCycle() as Void {
-        var startTime = 0;
-        var waitTimeDelta = 0;
-        if (PRINT_SPEED) {
-            _cycleCount = 0;
-            startTime = System.getTimer();
-            waitTimeDelta = startTime - _lastTime; 
-        }
 
         for (var i = 0; i < STEPS_PER_CYCLE; i++) {
             _cpu.step();
-        }
-
-        if (PRINT_SPEED) {
-            _lastTime = System.getTimer();
-            var exeTimeDelta = _lastTime - startTime;
-            var speed = (_cycleCount * 1000) / (exeTimeDelta + waitTimeDelta);
-            System.println(format("Utilization: $1$% | $2$ MCycle/s", 
-                [((exeTimeDelta * 100) / (exeTimeDelta + waitTimeDelta)).format("%d"), speed.format("%d")]
-            ));
         }
     }
 

@@ -258,7 +258,9 @@ class GameBoyPPU {
                 case PPUMODE_HBLANK: {
                     _ly++;
                     if (_ly == SCREEN_HEIGHT) {
-                        _frameDoneCB.invoke();
+                        if (_frameSkipCount == 0) {
+                            _frameDoneCB.invoke();
+                        }
                         _sendCPUInt.invoke(GameBoyCPU.INT_VBLANK);
                         _ppuMode = PPUMODE_VBLANK;
                         _ppuModeStat = STAT_INT_VBLANK;
