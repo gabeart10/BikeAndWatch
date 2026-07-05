@@ -23,7 +23,7 @@ class BikeAndWatchView extends WatchUi.View {
     // the state of this View and prepare it to be shown. This includes
     // loading resources into memory.
     function onShow() as Void {
-        _gb.initSystem();
+        _gcManager.getCart(ROM_TO_RUN, method(:cartReady));
     }
 
     // Update the view
@@ -52,10 +52,6 @@ class BikeAndWatchView extends WatchUi.View {
 
     function gbEventHandler(event as GameBoy.Event) as Void {
         switch (event) {
-            case GameBoy.EVENT_READY: {
-                _gcManager.getCart(ROM_TO_RUN, method(:cartReady));
-            } break;
-            
             case GameBoy.EVENT_FRAME_DONE: {
                 _drawFrame = true;
                 requestUpdate();

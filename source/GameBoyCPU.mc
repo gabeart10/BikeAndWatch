@@ -50,14 +50,13 @@ class GameBoyCPU {
 
     private var _skipReadPrint as Boolean = true;
     private var _printEnable as Boolean = false;
-    private var _bootRom as ByteArray?;
     private var _hram as ByteArray = new[127]b;
     private var _extBusRead as GBBusRead;
     private var _extBusWrite as GBBusWrite;
     private var _extClockCycle as GBClockCycle;
     private var _state as CPUState = CPU_STATE_RUNNING;
-    private var _pc as Number = 0; // Program Counter
-    private var _sp as Number = 0; // Stack Pointer
+    private var _pc as Number = 0x100; // Program Counter
+    private var _sp as Number = 0xFFFE; // Stack Pointer
     // Flags use various values to represent on for speed, but off is always 0
     private var _nZFlag as Number = 0; // Not Zero Flag
     private var _NFlag as Number = 0; // Subtract Flag
@@ -66,9 +65,9 @@ class GameBoyCPU {
     private var _ime as Boolean = false; // Interrupt Master Enable Flag
     private var _imeNext as Boolean = false; // Enable IME Next Cycle
     private var _ie as Number = 0; // Interrupt Enable Register
-    private var _if as Number = 0; // Interrupt Flag Register
+    private var _if as Number = 0x1; // Interrupt Flag Register
     // Registers: B, C, D, E, H, L, INVALID, A
-    private var _regs as Array<Number> = [0, 0, 0, 0, 0, 0, 0, 0];
+    private var _regs as Array<Number> = [0, 0x13, 0, 0xD8, 0x1, 0x4D, 0, 0x1];
 
     private function busRead(addr as Number) as Number {
         // Make sure memory is up to date
@@ -76,19 +75,13 @@ class GameBoyCPU {
 
         if (PRINT_TRACE) {
             var data;
-            if (addr == 0xFF50) {
-                // BOOT ROM Lock
-                data = _bootRom != null ? 1 : 0; 
-            } else if (addr == 0xFF0F) {
+            if (addr == 0xFF0F) {
                 data = _if;
             } else if (addr == 0xFFFF) {
                 data = _ie;
             } else if (addr >= 0xFF80) {
                 // HRAM
                 data = _hram[addr - 0xFF80];
-            } else if (_bootRom != null && addr < 0x100) {
-                // During boot, the first 256 bytes of the address space are mapped to the boot ROM
-                data = _bootRom[addr];
             } else {
                 data = _extBusRead.invoke(addr);
             }
@@ -100,19 +93,13 @@ class GameBoyCPU {
             }
             return data;
         } else {
-            if (addr == 0xFF50) {
-                // BOOT ROM Lock
-                return _bootRom != null ? 1 : 0; 
-            } else if (addr == 0xFF0F) {
+            if (addr == 0xFF0F) {
                 return _if | 0xE0;
             } else if (addr == 0xFFFF) {
                 return _ie;
             } else if (addr >= 0xFF80) {
                 // HRAM
                 return _hram[addr - 0xFF80];
-            } else if (_bootRom != null && addr < 0x100) {
-                // During boot, the first 256 bytes of the address space are mapped to the boot ROM
-                return _bootRom[addr];
             } else {
                 return _extBusRead.invoke(addr);
             }
@@ -123,10 +110,7 @@ class GameBoyCPU {
         // Make sure memory is up to date
         _extClockCycle.invoke();
 
-        if (addr == 0xFF50 && data == 0x1) {
-            // BOOT ROM Lock
-            _bootRom = null; // Lock the boot ROM
-        } else if (addr == 0xFF0F) {
+        if (addr == 0xFF0F) {
             _if = data;
         } else if (addr == 0xFFFF) {
             _ie = data;
@@ -185,8 +169,7 @@ class GameBoyCPU {
         _CFlag = result & carryMask;
     }
 
-    function initialize(bootRom as ByteArray, extBusRead as GBBusRead, extBusWrite as GBBusWrite, extClockCycle as GBClockCycle) {
-        _bootRom = bootRom;
+    function initialize(extBusRead as GBBusRead, extBusWrite as GBBusWrite, extClockCycle as GBClockCycle) {
         _extBusRead = extBusRead;
         _extBusWrite = extBusWrite;
         _extClockCycle = extClockCycle;

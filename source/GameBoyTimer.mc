@@ -3,7 +3,7 @@ import Toybox.Lang;
 class GameBoyTimer {
     private const _clockSelectMaskLookup as Array<Number> = [0x0080, 0x0002, 0x0008, 0x0020];
     private var _sendCPUInt as GBCPUSendIntFunc;
-    private var _systemCounter as Number = 0;
+    private var _systemCounter as Number = 0x2AC0;
     private var _tima as Number = 0;
     private var _tma as Number = 0;
     private var _enable as Number = 0;

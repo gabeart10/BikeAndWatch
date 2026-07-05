@@ -60,16 +60,16 @@ class GameBoyPPU {
     private var _checkStat as Boolean = false;
     private var _vram as ByteArray = new[8192]b;
     private var _oam as ByteArray = new[160]b;
-    private var _lcdc as Number = 0; // LCD Control
+    private var _lcdc as Number = 0x91; // LCD Control
     private var _ly as Number = 0; // LCD Y Cord
     private var _lyc as Number = 0; // LY Compare
     private var _ppuModeTick as Number = PPUCYCLE_OAM_SCAN;
     private var _ppuMode as Number = PPUMODE_OAM_SCAN;
     private var _ppuModeStat as Number = STAT_INT_OAM_SCAN;
-    private var _stat as Number = 0; // LCD Status
+    private var _stat as Number = 0x80; // LCD Status
     private var _scy as Number = 0; // Background Viewport Y
     private var _scx as Number = 0; // Background Viewport X
-    private var _bgp as Number = 0; // Background Palette Data
+    private var _bgp as Number = 0xFC; // Background Palette Data
     private var _obp0 as Number = 0; // OBJ0 Palette Data 
     private var _obp1 as Number = 0; // OBJ1 Palette Data 
     private var _colorMap as Array<Graphics.ColorValue> = [Graphics.COLOR_WHITE, Graphics.COLOR_LT_GRAY, Graphics.COLOR_DK_GRAY, Graphics.COLOR_BLACK];
@@ -366,9 +366,6 @@ class GameBoyPPU {
                 _ppuModeTick = PPUCYCLE_OAM_SCAN;
             }
             _lcdc = data;
-            if ((_lcdc & LCDCBIT_BG_WIN_EN) == 0) {
-                System.print("");
-            }
         } else if (addr == 0xFF41) {
             // LCD Status
             _stat = data & 0x78;
