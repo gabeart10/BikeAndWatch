@@ -4,8 +4,6 @@ const ROM_TO_RUN as String = "Tetris";
 
 const PRINT_TRACE as Boolean = false;
 const PRINT_FPS as Boolean = true;
-const PRINT_MCPS as Boolean = false;
-const PRINT_SERIAL as Boolean = false;
 
 const STEPS_PER_CYCLE as Number = 5000;
 

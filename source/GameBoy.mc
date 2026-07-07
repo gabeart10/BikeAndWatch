@@ -128,7 +128,6 @@ class GameBoy {
     private var _lastTime as Number = 0;
     private var _lastWaitTime as Number = 0;
     private var _waitTime as Number = 0;
-    private var _cycleCount as Number = 0;
 
     // CPU
     private var _printEnable as Boolean = false;
@@ -188,12 +187,6 @@ class GameBoy {
     private var _wYPos as Number = 0;
     private var _yCond as Boolean = false;
 
-    // Serial
-    private var _sc as Number = 0;
-    private var _sb as Number = 0;
-    private var _cycleCnt as Number = 0;
-    private var _shiftCnt as Number = 0;
-
     private function get16BitReg(reg as RegistersEnum) as Number {
         switch (reg) {
             case REG_BC:
@@ -247,21 +240,11 @@ class GameBoy {
             var frameTimeDelta = System.getTimer() - _lastTime;
             _lastTime = System.getTimer();
             var renderFPS = 1000.0 / frameTimeDelta;
-            if (PRINT_MCPS) {
-                System.println(format("$1$ Render FPS | $2$ System FPS | $3$ MCycle/s | $4$% Idle", [
-                    renderFPS.format("%.3f"), 
-                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
-                    ((_cycleCount * 1000) / frameTimeDelta).format("%d"),
-                    ((_waitTime * 100) / frameTimeDelta).format("%d")
-                ]));
-                _cycleCount = 0;
-            } else {
-                System.println(format("$1$ Render FPS | $2$ System FPS | $3$% Idle", [
-                    renderFPS.format("%.3f"), 
-                    (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
-                    ((_waitTime * 100) / frameTimeDelta).format("%d")
-                ]));
-            }
+            System.println(format("$1$ Render FPS | $2$ System FPS | $3$% Idle", [
+                renderFPS.format("%.3f"), 
+                (renderFPS * PPU_FRAME_DIVIDER).format("%.3f"),
+                ((_waitTime * 100) / frameTimeDelta).format("%d")
+            ]));
             _waitTime = 0;
         }
     }
@@ -300,13 +283,7 @@ class GameBoy {
             return ret;
         } else if (addr < 0xFF03) {
             //Serial Transfer
-            if (PRINT_SERIAL && addr == 0xFF01) {
-                return _sb & 0xFF;
-            } else if (PRINT_SERIAL && addr == 0xFF02) {
-                return _sc;
-            } else {
-                return 0xFF;
-            }
+            return 0xFF;
         } else if (addr == 0xFF04) {
             // DIV
             return _systemCounter >> 6;
@@ -393,10 +370,6 @@ class GameBoy {
         } else if (addr == 0xFF00) {
             // Joypad Input
             _joyp = (data & 0x30) | 0xCF;
-        } else if (PRINT_SERIAL && addr == 0xFF01) {
-            _sb = data;
-        } else if (PRINT_SERIAL && addr == 0xFF02) {
-            _sc = data;
         } else if (addr == 0xFF04) {
             // DIV
             _systemCounter = 0;
@@ -790,27 +763,6 @@ class GameBoy {
                 }
                 _prevIntState = triggered;
             }
-        }
-
-        // Serial
-        if (PRINT_SERIAL) {
-            _cycleCnt++;
-            if (_cycleCnt == 128) {
-                _cycleCnt = 0;
-                if ((_sc & 0x81) == 0x81) {
-                    _sb <<= 1;
-                    _shiftCnt++;
-                    if (_shiftCnt >= 8) {
-                        _shiftCnt = 0;
-                        _sc &= 0x7F;
-                        _if |= (0x1 << INT_SERIAL);
-                        System.print((_sb >> 8).toChar());
-                    }
-                }
-            }
-        }
-        if (PRINT_FPS && PRINT_MCPS) {
-            _cycleCount++;
         }
     }
 
