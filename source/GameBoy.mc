@@ -153,14 +153,13 @@ class GameBoy {
     private var _joyp as Number = 0xCF;
 
     // Timer
-    private const _clockFallingEdgeMaskLookup as Array<Number> = [0x00FF, 0x0003, 0x000F, 0x003F];
+    private const _clockShiftLookup as Array<Number> = [8, 2, 4, 6];
     private var _systemCounter as Number = 0x2AC0;
     private var _tima as Number = 0;
     private var _tma as Number = 0;
     private var _enable as Number = 0;
     private var _clockSelect as Number = 0;
-    private var _clockFallingEdgeMask as Number = _clockFallingEdgeMaskLookup[0];
-    private var _overflowBuffered as Boolean = false;
+    private var _clockShift as Number = _clockShiftLookup[0];
 
     // PPU
     private var _frameSkipCount as Number = 0;
@@ -250,9 +249,6 @@ class GameBoy {
     }
 
     function busRead(addr as Number) as Number {
-        // Make sure memory is up to date
-        cycleMClock();
-
         if (addr < 0x8000) {
             // ROM
             return (_cart as GameCart.GameCart).busRead(addr);
@@ -346,9 +342,6 @@ class GameBoy {
     }
 
     function busWrite(addr as Number, data as Number) as Void {
-        // Make sure memory is up to date
-        cycleMClock();
-
         if (addr < 0x8000) {
             // ROM
             (_cart as GameCart.GameCart).busWrite(addr, data);
@@ -376,14 +369,13 @@ class GameBoy {
         } else if (addr == 0xFF05) {
             // TIMA
             _tima = data;
-            _overflowBuffered = false;
         } else if (addr == 0xFF06) {
             // TMA
             _tma = data;
         } else if (addr == 0xFF07) {
             // TAC
             _clockSelect = data & 0x3;
-            _clockFallingEdgeMask = _clockFallingEdgeMaskLookup[_clockSelect];
+            _clockShift = _clockShiftLookup[_clockSelect];
             _enable = (data >> 2) & 0x1;
         } else if (addr < 0xFF0F) {
             return;
@@ -485,9 +477,7 @@ class GameBoy {
                         _pc = 0x40 + (bit * 0x8);
                         // Make sure state is correct and add delay
                         _state = CPU_STATE_RUNNING;
-                        cycleMClock();
-                        cycleMClock();
-                        cycleMClock();
+                        cycleMClock(5);
                         break;
                     }
                     readyInts >>= 1;
@@ -511,7 +501,8 @@ class GameBoy {
                             _state = CPU_STATE_RUNNING;
                         } else {
                             _state = CPU_STATE_HALTED;
-                            cycleMClock();
+                            // Look at better methods of handling halt
+                            cycleMClock(4);
                         }
                         break;
                     }
@@ -680,77 +671,79 @@ class GameBoy {
         }
     }
 
-    function cycleMClock() as Void {
+    function cycleMClock(cycles as Number) as Void {
         // Timer
-        // Using CGB configuration
-        // TODO check if emulating DMG or CGB config is faster 
-        _systemCounter = (_systemCounter + 1) & 0x3FFF;
+        var oldSys = _systemCounter;
+        var newSys = oldSys + cycles;
+        _systemCounter = newSys & 0x3FFF;
 
-        if (_overflowBuffered) {
-            _tima = _tma;
-            _if |= (0x1 << INT_TIMER);
-            _overflowBuffered = false;
-        } else if ((_enable != 0) && ((_systemCounter & _clockFallingEdgeMask) == 0)) {
-            var newTima = _tima + 1;
-            if (newTima > 0xFF) {
-                _tima = 0;
-                _overflowBuffered = true;
-            } else {
-                _tima = newTima;
+        if (_enable) {
+            var ticks = (newSys >> _clockShift) - (oldSys >> _clockShift);
+            if (ticks) {
+                var newTima = _tima + ticks;
+                if (newTima > 0xFF) {
+                    _tima = (_tma + newTima) & 0xFF;
+                    _if |= (0x1 << INT_TIMER);
+                } else {
+                    _tima = newTima;
+                }
             }
         }
 
         // PPU
         if (_lcdc & 0x80) {
-            var ppuTick = _ppuModeTick - 1;
-            if (ppuTick) {
+            var ppuTick = _ppuModeTick - cycles;
+            if (ppuTick > 0) {
                 _ppuModeTick = ppuTick;
             } else {
-                var mode = _ppuMode;
-                if (mode == PPUMODE_OAM_SCAN) {
-                    _ppuMode = PPUMODE_DRAW;
-                    _ppuModeStat = STAT_INT_DRAW;
-                    _ppuModeTick = PPUCYCLE_DRAW;
-                } else if (mode == PPUMODE_DRAW) {
-                    if (_ly == _wy) {
-                        _yCond = true;
-                    }
-                    if (_frameSkipCount == 0) {
-                        drawLine();
-                    }
-                    _ppuMode = PPUMODE_HBLANK;
-                    _ppuModeStat = STAT_INT_HBLANK; 
-                    _ppuModeTick = PPUCYCLE_HBLANK;
-                } else if (mode == PPUMODE_HBLANK) {
-                    _ly++;
-                    if (_ly == SCREEN_HEIGHT) {
-                        if (_frameSkipCount == 0) {
-                            ppuFrameDone();
+                while (ppuTick <= 0) {
+                    var mode = _ppuMode;
+                    if (mode == PPUMODE_OAM_SCAN) {
+                        _ppuMode = PPUMODE_DRAW;
+                        _ppuModeStat = STAT_INT_DRAW;
+                        ppuTick += PPUCYCLE_DRAW;
+                    } else if (mode == PPUMODE_DRAW) {
+                        if (_ly == _wy) {
+                            _yCond = true;
                         }
-                        _if |= (0x1 << INT_VBLANK);
-                        _ppuMode = PPUMODE_VBLANK;
-                        _ppuModeStat = STAT_INT_VBLANK;
-                        _ppuModeTick = PPUCYCLE_VBLANK;
-                    } else {
-                        _ppuMode = PPUMODE_OAM_SCAN;
-                        _ppuModeStat = STAT_INT_OAM_SCAN;
-                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                    }
-                } else if (mode == PPUMODE_VBLANK) {
-                    _ly++;
-                    if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
-                        _ly = 0;
-                        _wYPos = 0;
-                        _yCond = false;
-                        _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
-                        _ppuMode = PPUMODE_OAM_SCAN;
-                        _ppuModeStat = STAT_INT_OAM_SCAN;
-                        _ppuModeTick = PPUCYCLE_OAM_SCAN;
-                    } else {
-                        _ppuModeTick = PPUCYCLE_VBLANK;
+                        if (_frameSkipCount == 0) {
+                            drawLine();
+                        }
+                        _ppuMode = PPUMODE_HBLANK;
+                        _ppuModeStat = STAT_INT_HBLANK; 
+                        ppuTick += PPUCYCLE_HBLANK;
+                    } else if (mode == PPUMODE_HBLANK) {
+                        _ly++;
+                        if (_ly == SCREEN_HEIGHT) {
+                            if (_frameSkipCount == 0) {
+                                ppuFrameDone();
+                            }
+                            _if |= (0x1 << INT_VBLANK);
+                            _ppuMode = PPUMODE_VBLANK;
+                            _ppuModeStat = STAT_INT_VBLANK;
+                            ppuTick += PPUCYCLE_VBLANK;
+                        } else {
+                            _ppuMode = PPUMODE_OAM_SCAN;
+                            _ppuModeStat = STAT_INT_OAM_SCAN;
+                            ppuTick += PPUCYCLE_OAM_SCAN;
+                        }
+                    } else if (mode == PPUMODE_VBLANK) {
+                        _ly++;
+                        if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
+                            _ly = 0;
+                            _wYPos = 0;
+                            _yCond = false;
+                            _frameSkipCount = (_frameSkipCount + 1) % PPU_FRAME_DIVIDER;
+                            _ppuMode = PPUMODE_OAM_SCAN;
+                            _ppuModeStat = STAT_INT_OAM_SCAN;
+                            ppuTick += PPUCYCLE_OAM_SCAN;
+                        } else {
+                            ppuTick += PPUCYCLE_VBLANK;
+                        }
                     }
                 }
                 _checkStat = true;
+                _ppuModeTick = ppuTick;
             }
 
             // Check for STAT interrupt
@@ -825,40 +818,49 @@ class GameBoy {
 
     function op_ld_r_r(opcode as Number) as Void {
         _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+        cycleMClock(1);
     }
 
     function op_ld_r_u8(opcode as Number) as Void {
         _regs[(opcode >> 3) & 0x07] = busRead(_pc);
         _pc++;
+        cycleMClock(2);
     }
 
     function op_ld_r_HLptr(opcode as Number) as Void {
         _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+        cycleMClock(2);
     }
 
     function op_ld_HLptr_r(opcode as Number) as Void {
         busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+        cycleMClock(2);
     }
 
     function op_ld_HLptr_u8(opcode as Number) as Void {
         busWrite((_regs[REG_H] << 8) | _regs[REG_L], busRead(_pc));
         _pc++;
+        cycleMClock(3);
     }
 
     function op_ld_A_BCptr(opcode as Number) as Void {
         _regs[REG_A] = busRead((_regs[REG_B] << 8) | _regs[REG_C]);
+        cycleMClock(2);
     }
 
     function op_ld_A_DEptr(opcode as Number) as Void {
         _regs[REG_A] = busRead((_regs[REG_D] << 8) | _regs[REG_E]);
+        cycleMClock(2);
     }
 
     function op_ld_BCptr_A(opcode as Number) as Void {
         busWrite((_regs[REG_B] << 8) | _regs[REG_C], _regs[REG_A]);
+        cycleMClock(2);
     }
 
     function op_ld_DEptr_A(opcode as Number) as Void {
         busWrite((_regs[REG_D] << 8) | _regs[REG_E], _regs[REG_A]);
+        cycleMClock(2);
     }
 
     function op_ld_A_u16ptr(opcode as Number) as Void {
@@ -867,6 +869,7 @@ class GameBoy {
         addr |= busRead(_pc) << 8;
         _pc++;
         _regs[REG_A] = busRead(addr);
+        cycleMClock(4);
     }
 
     function op_ld_u16ptr_A(opcode as Number) as Void {
@@ -875,24 +878,29 @@ class GameBoy {
         addr |= busRead(_pc) << 8;
         _pc++;
         busWrite(addr, _regs[REG_A]);
+        cycleMClock(4);
     }
 
     function op_ld_A_Cptr(opcode as Number) as Void {
         _regs[REG_A] = busRead(0xFF00 | _regs[REG_C]);
+        cycleMClock(2);
     }
 
     function op_ld_Cptr_A(opcode as Number) as Void {
         busWrite(0xFF00 | _regs[REG_C], _regs[REG_A]);
+        cycleMClock(2);
     }
 
     function op_ld_A_u8ptr(opcode as Number) as Void {
         _regs[REG_A] = busRead(0xFF00 | busRead(_pc));
         _pc++;
+        cycleMClock(3);
     }
             
     function op_ld_u8ptr_A(opcode as Number) as Void {
         busWrite(0xFF00 | busRead(_pc), _regs[REG_A]);
         _pc++;
+        cycleMClock(3);
     }
 
     function op_ldi_A_HL(opcode as Number) as Void {
@@ -901,6 +909,7 @@ class GameBoy {
         hl++;
         _regs[REG_H] = (hl >> 8) & 0xFF;
         _regs[REG_L] = hl & 0xFF;
+        cycleMClock(2);
     }
 
     function op_ldd_A_HL(opcode as Number) as Void {
@@ -909,6 +918,7 @@ class GameBoy {
         hl--;
         _regs[REG_H] = (hl >> 8) & 0xFF;
         _regs[REG_L] = hl & 0xFF;
+        cycleMClock(2);
     }
 
     function op_ldi_HL_A(opcode as Number) as Void {
@@ -917,6 +927,7 @@ class GameBoy {
         hl++;
         _regs[REG_H] = (hl >> 8) & 0xFF;
         _regs[REG_L] = hl & 0xFF;
+        cycleMClock(2);
     }
 
     function op_ldd_HL_A(opcode as Number) as Void {
@@ -925,6 +936,7 @@ class GameBoy {
         hl--;
         _regs[REG_H] = (hl >> 8) & 0xFF;
         _regs[REG_L] = hl & 0xFF;
+        cycleMClock(2);
     }
 
     function op_ld_rr_u16(opcode as Number) as Void {
@@ -933,6 +945,7 @@ class GameBoy {
         value |= busRead(_pc) << 8;
         _pc++;
         set16BitReg((opcode >> 4) as RegistersEnum, value);
+        cycleMClock(3);
     }
 
     function op_ld_u16tr_SP(opcode as Number) as Void {
@@ -942,11 +955,12 @@ class GameBoy {
         _pc++;
         busWrite(addr, _sp & 0xFF);
         busWrite(addr + 1, (_sp >> 8) & 0xFF);
+        cycleMClock(5);
     }
 
     function op_ld_SP_HL(opcode as Number) as Void {
         _sp = (_regs[REG_H] << 8) | _regs[REG_L];
-        cycleMClock();
+        cycleMClock(2);
     }
 
     function op_ld_HL_SP_s8(opcode as Number) as Void {
@@ -961,7 +975,7 @@ class GameBoy {
         _HFlag = carry & 0x10;
         _CFlag = carry & 0x100;
         _pc++;
-        cycleMClock();
+        cycleMClock(3);
     } 
 
     function op_add_r(opcode as Number) as Void {
@@ -969,6 +983,7 @@ class GameBoy {
         var result = _regs[REG_A] + value;
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_add_HLptr(opcode as Number) as Void {
@@ -976,6 +991,7 @@ class GameBoy {
         var result = _regs[REG_A] + value;
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(2);
     }
 
     function op_add_u8(opcode as Number) as Void {
@@ -984,6 +1000,7 @@ class GameBoy {
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_adc_r(opcode as Number) as Void {
@@ -991,6 +1008,7 @@ class GameBoy {
         var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_adc_HLptr(opcode as Number) as Void {
@@ -998,6 +1016,7 @@ class GameBoy {
         var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(2);
     }
 
     function op_adc_u8(opcode as Number) as Void {
@@ -1006,6 +1025,7 @@ class GameBoy {
         calcFlags(_regs[REG_A], value, result, 0, 0x100);
         _regs[REG_A] = result & 0xFF;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_sub_r(opcode as Number) as Void {
@@ -1013,6 +1033,7 @@ class GameBoy {
         var result = _regs[REG_A] - value;
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_sub_HLptr(opcode as Number) as Void {
@@ -1020,6 +1041,7 @@ class GameBoy {
         var result = _regs[REG_A] - value;
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(2);
     }
 
     function op_sub_u8(opcode as Number) as Void {
@@ -1028,6 +1050,7 @@ class GameBoy {
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_sbc_r(opcode as Number) as Void {
@@ -1035,6 +1058,7 @@ class GameBoy {
         var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_sbc_HLptr(opcode as Number) as Void {
@@ -1042,6 +1066,7 @@ class GameBoy {
         var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
+        cycleMClock(2);
     }
 
     function op_sbc_u8(opcode as Number) as Void {
@@ -1050,18 +1075,21 @@ class GameBoy {
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _regs[REG_A] = result & 0xFF;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_cp_r(opcode as Number) as Void {
         var value = _regs[opcode & 0x07];
         var result = _regs[REG_A] - value;
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        cycleMClock(1);
     }
 
     function op_cp_HLptr(opcode as Number) as Void {
         var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
         var result = _regs[REG_A] - value;
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
+        cycleMClock(2);
     }
 
     function op_cp_u8(opcode as Number) as Void {
@@ -1069,6 +1097,7 @@ class GameBoy {
         var result = _regs[REG_A] - value;
         calcFlags(_regs[REG_A], value, result, 1, 0x100);
         _pc++;
+        cycleMClock(2);
     }
 
     function op_inc_r(opcode as Number) as Void {
@@ -1078,6 +1107,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_inc_HLptr(opcode as Number) as Void {
@@ -1088,6 +1118,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = (value ^ result) & 0x10;
         busWrite(HL, result & 0xFF);
+        cycleMClock(3);
     }
 
     function op_dec_r(opcode as Number) as Void {
@@ -1097,6 +1128,7 @@ class GameBoy {
         _NFlag = 1;
         _HFlag = (value ^ result) & 0x10;
         _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+        cycleMClock(1);
     }
 
     function op_dec_HLptr(opcode as Number) as Void {
@@ -1107,18 +1139,19 @@ class GameBoy {
         _NFlag = 1;
         _HFlag = (value ^ result) & 0x10;
         busWrite(HL, result & 0xFF);
+        cycleMClock(3);
     }
 
     function op_inc_rr(opcode as Number) as Void {
         var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
         set16BitReg(reg, get16BitReg(reg) + 1);
-        cycleMClock();
+        cycleMClock(2);
     }
 
     function op_dec_rr(opcode as Number) as Void {
         var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
         set16BitReg(reg, get16BitReg(reg) - 1);
-        cycleMClock();
+        cycleMClock(2);
     }
 
     function op_add_HL_rr(opcode as Number) as Void {
@@ -1129,7 +1162,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = (HL ^ reg ^ result) & 0x1000;
         _CFlag = result & 0x10000;
-        cycleMClock();
+        cycleMClock(2);
     }
 
     function op_and_r(opcode as Number) as Void {
@@ -1138,6 +1171,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 1;
         _CFlag = 0;
+        cycleMClock(1);
     }
 
     function op_and_HLptr(opcode as Number) as Void {
@@ -1146,6 +1180,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 1;
         _CFlag = 0;
+        cycleMClock(2);
     }
 
     function op_and_u8(opcode as Number) as Void {
@@ -1155,6 +1190,7 @@ class GameBoy {
         _HFlag = 1;
         _CFlag = 0;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_xor_r(opcode as Number) as Void {
@@ -1163,6 +1199,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = 0;
+        cycleMClock(1);
     }
 
     function op_xor_HLptr(opcode as Number) as Void {
@@ -1171,6 +1208,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = 0;
+        cycleMClock(2);
     }
 
     function op_xor_u8(opcode as Number) as Void {
@@ -1180,6 +1218,7 @@ class GameBoy {
         _HFlag = 0;
         _CFlag = 0;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_or_r(opcode as Number) as Void {
@@ -1188,6 +1227,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = 0;
+        cycleMClock(1);
     }
 
     function op_or_HLptr(opcode as Number) as Void {
@@ -1196,6 +1236,7 @@ class GameBoy {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = 0;
+        cycleMClock(2);
     }
 
     function op_or_u8(opcode as Number) as Void {
@@ -1205,12 +1246,14 @@ class GameBoy {
         _HFlag = 0;
         _CFlag = 0;
         _pc++;
+        cycleMClock(2);
     }
 
     function op_cpl(opcode as Number) as Void {
         _regs[REG_A] = (~_regs[REG_A]) & 0xFF;
         _NFlag = 1;
         _HFlag = 1;
+        cycleMClock(1);
     }
 
     function op_rlca(opcode as Number) as Void {
@@ -1219,6 +1262,7 @@ class GameBoy {
         _nZFlag = 1;
         _NFlag = 0;
         _HFlag = 0;
+        cycleMClock(1);
     }
 
     function op_rrca(opcode as Number) as Void {
@@ -1227,6 +1271,7 @@ class GameBoy {
         _nZFlag = 1;
         _NFlag = 0;
         _HFlag = 0;
+        cycleMClock(1);
     }
 
     function op_rla(opcode as Number) as Void {
@@ -1236,6 +1281,7 @@ class GameBoy {
         _nZFlag = 1;
         _NFlag = 0;
         _HFlag = 0;
+        cycleMClock(1);
     }
 
     function op_rra(opcode as Number) as Void {
@@ -1245,6 +1291,7 @@ class GameBoy {
         _nZFlag = 1;
         _NFlag = 0;
         _HFlag = 0;
+        cycleMClock(1);
     }
 
     function op_cb_op(opcode as Number) as Void {
@@ -1255,92 +1302,97 @@ class GameBoy {
 
     function op_jp_u16(opcode as Number) as Void {
         _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_jp_hl(opcode as Number) as Void {
         _pc = get16BitReg(REG_HL);
+        cycleMClock(1);
     }
 
     function op_jp_nz(opcode as Number) as Void {
         if (_nZFlag) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            cycleMClock(4);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_jp_z(opcode as Number) as Void {
         if (_nZFlag == 0) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            cycleMClock(4);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_jp_nc(opcode as Number) as Void {
         if (_CFlag == 0) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            cycleMClock(4);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_jp_c(opcode as Number) as Void {
         if (_CFlag) {
             _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+            cycleMClock(4);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_jr_s8(opcode as Number) as Void {
         _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-        cycleMClock();
+        cycleMClock(3);
     }
 
     function op_jr_nz(opcode as Number) as Void {
         if (_nZFlag) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+            cycleMClock(3);
         } else {
             _pc++;
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_jr_z(opcode as Number) as Void {
         if (_nZFlag == 0) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+            cycleMClock(3);
         } else {
             _pc++;
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_jr_nc(opcode as Number) as Void {
         if (_CFlag == 0) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+            cycleMClock(3);
         } else {
             _pc++;
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_jr_c(opcode as Number) as Void {
         if (_CFlag) {
             _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+            cycleMClock(3);
         } else {
             _pc++;
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_call_u16(opcode as Number) as Void {
@@ -1353,7 +1405,7 @@ class GameBoy {
         _sp--;
         busWrite(_sp, _pc & 0xFF);
         _pc = callAddr;
-        cycleMClock();
+        cycleMClock(6);
     }
 
     function op_call_nz(opcode as Number) as Void {
@@ -1367,11 +1419,11 @@ class GameBoy {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
+            cycleMClock(6);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_call_z(opcode as Number) as Void {
@@ -1385,11 +1437,11 @@ class GameBoy {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
+            cycleMClock(6);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_call_nc(opcode as Number) as Void {
@@ -1403,11 +1455,11 @@ class GameBoy {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
+            cycleMClock(6);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
     function op_call_c(opcode as Number) as Void {
@@ -1421,11 +1473,11 @@ class GameBoy {
             _sp--;
             busWrite(_sp, _pc & 0xFF);
             _pc = callAddr;
+            cycleMClock(6);
         } else {
             _pc += 2;
-            cycleMClock();
+            cycleMClock(3);
         }
-        cycleMClock();
     }
 
 
@@ -1437,7 +1489,7 @@ class GameBoy {
         _sp += 1;
         _pc |= busRead(_sp) << 8; 
         _sp += 1;
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_ret_nz(opcode as Number) as Void {
@@ -1446,9 +1498,10 @@ class GameBoy {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            cycleMClock();
+            cycleMClock(5);
+        } else {
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_ret_z(opcode as Number) as Void {
@@ -1457,9 +1510,10 @@ class GameBoy {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            cycleMClock();
+            cycleMClock(5);
+        } else {
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_ret_nc(opcode as Number) as Void {
@@ -1468,9 +1522,10 @@ class GameBoy {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            cycleMClock();
+            cycleMClock(5);
+        } else {
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_ret_c(opcode as Number) as Void {
@@ -1479,9 +1534,10 @@ class GameBoy {
             _sp += 1;
             _pc |= busRead(_sp) << 8; 
             _sp += 1;
-            cycleMClock();
+            cycleMClock(5);
+        } else {
+            cycleMClock(2);
         }
-        cycleMClock();
     }
 
     function op_rst(opcode as Number) as Void {
@@ -1490,19 +1546,21 @@ class GameBoy {
         _sp -= 1;
         busWrite(_sp, _pc & 0xFF);
         _pc = opcode & 0x38;
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_ccf(opcode as Number) as Void {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = (_CFlag == 0) ? 1 : 0;
+        cycleMClock(1);
     }
 
     function op_scf(opcode as Number) as Void {
         _NFlag = 0;
         _HFlag = 0;
         _CFlag = 1;
+        cycleMClock(1);
     }
 
     function op_push_rr(opcode as Number) as Void {
@@ -1511,7 +1569,7 @@ class GameBoy {
         busWrite(_sp, pushData >> 8);
         _sp -= 1;
         busWrite(_sp, pushData & 0xFF);
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_push_AF(opcode as Number) as Void {
@@ -1524,7 +1582,7 @@ class GameBoy {
         busWrite(_sp, pushData >> 8);
         _sp -= 1;
         busWrite(_sp, pushData & 0xFF);
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_pop_rr(opcode as Number) as Void {
@@ -1533,6 +1591,7 @@ class GameBoy {
         popData |= busRead(_sp) << 8; 
         _sp += 1;
         set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+        cycleMClock(3);
     }
 
     function op_pop_AF(opcode as Number) as Void {
@@ -1544,6 +1603,7 @@ class GameBoy {
         _sp += 1;
         _regs[REG_A] = busRead(_sp); 
         _sp += 1;
+        cycleMClock(3);
     }
 
     function op_add_SP_s8(opcode as Number) as Void {
@@ -1558,21 +1618,23 @@ class GameBoy {
 
         _sp = result & 0xFFFF;
         _pc++;
-        cycleMClock();
-        cycleMClock();
+        cycleMClock(4);
     }
 
     function op_di(opcode as Number) as Void {
         _ime = false;
         _imeNext = false;
+        cycleMClock(1);
     }
 
     function op_ei(opcode as Number) as Void {
         _imeNext = true;
+        cycleMClock(1);
     }
 
     function op_halt(opcode as Number) as Void {
         _state = CPU_STATE_START_HALT;
+        cycleMClock(1);
     }
 
     function op_daa(opcode as Number) as Void {
@@ -1593,9 +1655,11 @@ class GameBoy {
         }
         _nZFlag = _regs[REG_A]; 
         _HFlag = 0;
+        cycleMClock(1);
     }
 
     function op_nop(opcode as Number) as Void {
+        cycleMClock(1);
     }
 
     function op_invalid(opcode as Number) as Void {
@@ -1692,8 +1756,16 @@ class GameBoy {
         if (group != CB_GROUP_BIT) { 
             if (isHL) {
                 busWrite((_regs[REG_H] << 8) | _regs[REG_L], result); 
+                cycleMClock(4);
             } else {
                 _regs[regIndex] = result;
+                cycleMClock(2);
+            }
+        } else {
+            if (isHL) {
+                cycleMClock(3);
+            } else {
+                cycleMClock(2);
             }
         }
     }

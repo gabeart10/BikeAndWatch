@@ -1,6 +1,6 @@
 import Toybox.Lang;
 
-const ROM_TO_RUN as String = "Tetris";
+const ROM_TO_RUN as String = "mem_timing";
 
 const PRINT_TRACE as Boolean = false;
 const PRINT_FPS as Boolean = true;
