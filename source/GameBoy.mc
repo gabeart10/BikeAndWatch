@@ -154,14 +154,13 @@ class GameBoy {
     private var _joyp as Number = 0xCF;
 
     // Timer
-    private const _clockSelectMaskLookup as Array<Number> = [0x0080, 0x0002, 0x0008, 0x0020];
+    private const _clockFallingEdgeMaskLookup as Array<Number> = [0x00FF, 0x0003, 0x000F, 0x003F];
     private var _systemCounter as Number = 0x2AC0;
     private var _tima as Number = 0;
     private var _tma as Number = 0;
     private var _enable as Number = 0;
     private var _clockSelect as Number = 0;
-    private var _clockSelectMask as Number = _clockSelectMaskLookup[0];
-    private var _prevTimerState as Number = 0;
+    private var _clockFallingEdgeMask as Number = _clockFallingEdgeMaskLookup[0];
     private var _overflowBuffered as Boolean = false;
 
     // PPU
@@ -411,7 +410,7 @@ class GameBoy {
         } else if (addr == 0xFF07) {
             // TAC
             _clockSelect = data & 0x3;
-            _clockSelectMask = _clockSelectMaskLookup[_clockSelect];
+            _clockFallingEdgeMask = _clockFallingEdgeMaskLookup[_clockSelect];
             _enable = (data >> 2) & 0x1;
         } else if (addr < 0xFF0F) {
             return;
@@ -718,36 +717,28 @@ class GameBoy {
             _tima = _tma;
             _if |= (0x1 << INT_TIMER);
             _overflowBuffered = false;
-        } else {
-            if (_enable) {
-                if (((_systemCounter & _clockSelectMask) == 0) && (_prevTimerState != 0)) {
-                    // Falling edge detected do timer tick
-                    _tima++;
-                    if (_tima > 0xFF) {
-                        _tima = 0;
-                        _overflowBuffered = true;
-                    }
-                }
+        } else if ((_enable != 0) && ((_systemCounter & _clockFallingEdgeMask) == 0)) {
+            var newTima = _tima + 1;
+            if (newTima > 0xFF) {
+                _tima = 0;
+                _overflowBuffered = true;
+            } else {
+                _tima = newTima;
             }
         }
-        _prevTimerState = _systemCounter & _clockSelectMask;
 
         // PPU
-        if ((_lcdc & 0x80) == 0) {
-            return;
-        }
-        
-        _ppuModeTick--;
-        if (_ppuModeTick == 0) {
-            switch (_ppuMode) {
-                case PPUMODE_OAM_SCAN: {
+        if (_lcdc & 0x80) {
+            var ppuTick = _ppuModeTick - 1;
+            if (ppuTick) {
+                _ppuModeTick = ppuTick;
+            } else {
+                var mode = _ppuMode;
+                if (mode == PPUMODE_OAM_SCAN) {
                     _ppuMode = PPUMODE_DRAW;
                     _ppuModeStat = STAT_INT_DRAW;
                     _ppuModeTick = PPUCYCLE_DRAW;
-                    break;
-                }
-
-                case PPUMODE_DRAW: {
+                } else if (mode == PPUMODE_DRAW) {
                     if (_ly == _wy) {
                         _yCond = true;
                     }
@@ -757,10 +748,7 @@ class GameBoy {
                     _ppuMode = PPUMODE_HBLANK;
                     _ppuModeStat = STAT_INT_HBLANK; 
                     _ppuModeTick = PPUCYCLE_HBLANK;
-                    break;
-                }
-
-                case PPUMODE_HBLANK: {
+                } else if (mode == PPUMODE_HBLANK) {
                     _ly++;
                     if (_ly == SCREEN_HEIGHT) {
                         if (_frameSkipCount == 0) {
@@ -775,10 +763,7 @@ class GameBoy {
                         _ppuModeStat = STAT_INT_OAM_SCAN;
                         _ppuModeTick = PPUCYCLE_OAM_SCAN;
                     }
-                    break;
-                }
-
-                case PPUMODE_VBLANK: {
+                } else if (mode == PPUMODE_VBLANK) {
                     _ly++;
                     if (_ly == (SCREEN_HEIGHT + VBLANK_LINES)) {
                         _ly = 0;
@@ -791,21 +776,20 @@ class GameBoy {
                     } else {
                         _ppuModeTick = PPUCYCLE_VBLANK;
                     }
-                    break;
                 }
+                _checkStat = true;
             }
-            _checkStat = true;
-        }
 
-        // Check for STAT interrupt
-        if (_checkStat) {
-            _checkStat = false;
-            var triggered = ((((_lyc == _ly) ? STAT_INT_LYC : 0x00) | _ppuModeStat) & _stat) != 0;
-            if (triggered && !_prevIntState) {
-                // Only interrupt on rising edge
-                _if |= (0x1 << INT_LCD);
+            // Check for STAT interrupt
+            if (_checkStat) {
+                _checkStat = false;
+                var triggered = ((((_lyc == _ly) ? STAT_INT_LYC : 0x00) | _ppuModeStat) & _stat) != 0;
+                if (triggered && !_prevIntState) {
+                    // Only interrupt on rising edge
+                    _if |= (0x1 << INT_LCD);
+                }
+                _prevIntState = triggered;
             }
-            _prevIntState = triggered;
         }
 
         // Serial
