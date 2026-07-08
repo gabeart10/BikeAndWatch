@@ -455,93 +455,6 @@ class GameBoy {
         }
     }
 
-    function emuCycle() as Void {
-        _waitTime += System.getTimer() - _lastWaitTime;
-        for (var i = 0; i < STEPS_PER_CYCLE; i++) {
-            var opcode = 0x00;
-
-            // Check for Interrupt
-            if (_ime && (_if & _ie & 0x1F) != 0) {
-                var readyInts = _if & _ie;
-                _ime = false;
-                for (var bit = 0; bit < INT_END; bit++) {
-                    if (readyInts & 0x1) {
-                        // Clear Interrupt Flag
-                        _if &= ~(0x1 << bit);
-                        // Push PC to Stack
-                        _sp--;
-                        busWrite(_sp, _pc >> 8);
-                        _sp--;
-                        busWrite(_sp, _pc & 0xFF);
-                        // Set PC to ISR
-                        _pc = 0x40 + (bit * 0x8);
-                        // Make sure state is correct and add delay
-                        _state = CPU_STATE_RUNNING;
-                        cycleMClock(5);
-                        break;
-                    }
-                    readyInts >>= 1;
-                } 
-            } else {
-                switch (_state) {
-                    case CPU_STATE_RUNNING: {
-                        opcode = busRead(_pc);
-                        _pc++;
-                        break;
-                    }
-
-                    case CPU_STATE_START_HALT: 
-                    case CPU_STATE_HALTED: {
-                        if ((_if & _ie & 0x1F) != 0) {
-                            opcode = busRead(_pc);
-                            // Simulate HALT Bug
-                            if (_state != CPU_STATE_START_HALT) {
-                                _pc++;
-                            }
-                            _state = CPU_STATE_RUNNING;
-                        } else {
-                            _state = CPU_STATE_HALTED;
-                            // Look at better methods of handling halt
-                            cycleMClock(4);
-                        }
-                        break;
-                    }
-                }
-            }
-
-            if (PRINT_TRACE) {
-                if (_printEnable) {
-                    System.println(
-                        "0x" + (_pc - 1).format("%04X")
-                        + " " + _opStrings[opcode]
-                        + " | SP:0x" + _sp.format("%04X")
-                        + " A:0x" + _regs[REG_A].format("%02X")
-                        + " B:0x" + _regs[REG_B].format("%02X")
-                        + " C:0x" + _regs[REG_C].format("%02X")
-                        + " D:0x" + _regs[REG_D].format("%02X")
-                        + " E:0x" + _regs[REG_E].format("%02X")
-                        + " H:0x" + _regs[REG_H].format("%02X")
-                        + " L:0x" + _regs[REG_L].format("%02X")
-                        + " Z:" + (_nZFlag == 0 ? "1" : "0")
-                        + " N:" + (_NFlag != 0 ? "1" : "0")
-                        + " H:" + (_HFlag != 0 ? "1" : "0")
-                        + " C:" + (_CFlag != 0 ? "1" : "0")
-                    );
-                }
-            }
-
-            // Run opcode function
-            _opLookup[opcode].invoke(opcode);
-
-            // Don't process _imeNext if Op EI just ran
-            if (_imeNext && opcode != 0xFB) {
-                _imeNext = false;
-                _ime = true;
-            }
-        }
-        _lastWaitTime = System.getTimer();
-    }
-
     private function drawLine() as Void {
         var bmDc = _bitmap.getDc();
         var selOBJs = (new[0]) as Array<Number>;
@@ -816,856 +729,2309 @@ class GameBoy {
         }
     }
 
-    function op_ld_r_r(opcode as Number) as Void {
-        _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
-        cycleMClock(1);
-    }
-
-    function op_ld_r_u8(opcode as Number) as Void {
-        _regs[(opcode >> 3) & 0x07] = busRead(_pc);
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_ld_r_HLptr(opcode as Number) as Void {
-        _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        cycleMClock(2);
-    }
-
-    function op_ld_HLptr_r(opcode as Number) as Void {
-        busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
-        cycleMClock(2);
-    }
-
-    function op_ld_HLptr_u8(opcode as Number) as Void {
-        busWrite((_regs[REG_H] << 8) | _regs[REG_L], busRead(_pc));
-        _pc++;
-        cycleMClock(3);
-    }
-
-    function op_ld_A_BCptr(opcode as Number) as Void {
-        _regs[REG_A] = busRead((_regs[REG_B] << 8) | _regs[REG_C]);
-        cycleMClock(2);
-    }
-
-    function op_ld_A_DEptr(opcode as Number) as Void {
-        _regs[REG_A] = busRead((_regs[REG_D] << 8) | _regs[REG_E]);
-        cycleMClock(2);
-    }
-
-    function op_ld_BCptr_A(opcode as Number) as Void {
-        busWrite((_regs[REG_B] << 8) | _regs[REG_C], _regs[REG_A]);
-        cycleMClock(2);
-    }
-
-    function op_ld_DEptr_A(opcode as Number) as Void {
-        busWrite((_regs[REG_D] << 8) | _regs[REG_E], _regs[REG_A]);
-        cycleMClock(2);
-    }
-
-    function op_ld_A_u16ptr(opcode as Number) as Void {
-        var addr = busRead(_pc);
-        _pc++;
-        addr |= busRead(_pc) << 8;
-        _pc++;
-        _regs[REG_A] = busRead(addr);
-        cycleMClock(4);
-    }
-
-    function op_ld_u16ptr_A(opcode as Number) as Void {
-        var addr = busRead(_pc);
-        _pc++;
-        addr |= busRead(_pc) << 8;
-        _pc++;
-        busWrite(addr, _regs[REG_A]);
-        cycleMClock(4);
-    }
-
-    function op_ld_A_Cptr(opcode as Number) as Void {
-        _regs[REG_A] = busRead(0xFF00 | _regs[REG_C]);
-        cycleMClock(2);
-    }
-
-    function op_ld_Cptr_A(opcode as Number) as Void {
-        busWrite(0xFF00 | _regs[REG_C], _regs[REG_A]);
-        cycleMClock(2);
-    }
-
-    function op_ld_A_u8ptr(opcode as Number) as Void {
-        _regs[REG_A] = busRead(0xFF00 | busRead(_pc));
-        _pc++;
-        cycleMClock(3);
-    }
-            
-    function op_ld_u8ptr_A(opcode as Number) as Void {
-        busWrite(0xFF00 | busRead(_pc), _regs[REG_A]);
-        _pc++;
-        cycleMClock(3);
-    }
-
-    function op_ldi_A_HL(opcode as Number) as Void {
-        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-        _regs[REG_A] = busRead(hl);
-        hl++;
-        _regs[REG_H] = (hl >> 8) & 0xFF;
-        _regs[REG_L] = hl & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_ldd_A_HL(opcode as Number) as Void {
-        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-        _regs[REG_A] = busRead(hl);
-        hl--;
-        _regs[REG_H] = (hl >> 8) & 0xFF;
-        _regs[REG_L] = hl & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_ldi_HL_A(opcode as Number) as Void {
-        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-        busWrite(hl, _regs[REG_A]);
-        hl++;
-        _regs[REG_H] = (hl >> 8) & 0xFF;
-        _regs[REG_L] = hl & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_ldd_HL_A(opcode as Number) as Void {
-        var hl = (_regs[REG_H] << 8) | _regs[REG_L];
-        busWrite(hl, _regs[REG_A]);
-        hl--;
-        _regs[REG_H] = (hl >> 8) & 0xFF;
-        _regs[REG_L] = hl & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_ld_rr_u16(opcode as Number) as Void {
-        var value = busRead(_pc);
-        _pc++;
-        value |= busRead(_pc) << 8;
-        _pc++;
-        set16BitReg((opcode >> 4) as RegistersEnum, value);
-        cycleMClock(3);
-    }
-
-    function op_ld_u16tr_SP(opcode as Number) as Void {
-        var addr = busRead(_pc);
-        _pc++;
-        addr |= busRead(_pc) << 8;
-        _pc++;
-        busWrite(addr, _sp & 0xFF);
-        busWrite(addr + 1, (_sp >> 8) & 0xFF);
-        cycleMClock(5);
-    }
-
-    function op_ld_SP_HL(opcode as Number) as Void {
-        _sp = (_regs[REG_H] << 8) | _regs[REG_L];
-        cycleMClock(2);
-    }
-
-    function op_ld_HL_SP_s8(opcode as Number) as Void {
-        var offset = (busRead(_pc) << 24) >> 24; // Convert to 32 bit signed
-        var result = _sp + offset;
-        _regs[REG_H] = (result >> 8) & 0xFF;
-        _regs[REG_L] = result & 0xFF;
-
-        var carry = _sp ^ offset ^ result;
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = carry & 0x10;
-        _CFlag = carry & 0x100;
-        _pc++;
-        cycleMClock(3);
-    } 
-
-    function op_add_r(opcode as Number) as Void {
-        var value = _regs[opcode & 0x07];
-        var result = _regs[REG_A] + value;
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_add_HLptr(opcode as Number) as Void {
-        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        var result = _regs[REG_A] + value;
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_add_u8(opcode as Number) as Void {
-        var value = busRead(_pc);
-        var result = _regs[REG_A] + value;
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_adc_r(opcode as Number) as Void {
-        var value = _regs[opcode & 0x07];
-        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_adc_HLptr(opcode as Number) as Void {
-        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_adc_u8(opcode as Number) as Void {
-        var value = busRead(_pc);
-        var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 0, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_sub_r(opcode as Number) as Void {
-        var value = _regs[opcode & 0x07];
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_sub_HLptr(opcode as Number) as Void {
-        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_sub_u8(opcode as Number) as Void {
-        var value = busRead(_pc);
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_sbc_r(opcode as Number) as Void {
-        var value = _regs[opcode & 0x07];
-        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_sbc_HLptr(opcode as Number) as Void {
-        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        cycleMClock(2);
-    }
-
-    function op_sbc_u8(opcode as Number) as Void {
-        var value = busRead(_pc);
-        var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _regs[REG_A] = result & 0xFF;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_cp_r(opcode as Number) as Void {
-        var value = _regs[opcode & 0x07];
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        cycleMClock(1);
-    }
-
-    function op_cp_HLptr(opcode as Number) as Void {
-        var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        cycleMClock(2);
-    }
-
-    function op_cp_u8(opcode as Number) as Void {
-        var value = busRead(_pc);
-        var result = _regs[REG_A] - value;
-        calcFlags(_regs[REG_A], value, result, 1, 0x100);
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_inc_r(opcode as Number) as Void {
-        var value = _regs[(opcode >> 3) & 0x07];
-        var result = value + 1;
-        _nZFlag = result & 0xFF;
-        _NFlag = 0;
-        _HFlag = (value ^ result) & 0x10;
-        _regs[(opcode >> 3) & 0x07] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_inc_HLptr(opcode as Number) as Void {
-        var HL = (_regs[REG_H] << 8) | _regs[REG_L];
-        var value = busRead(HL);
-        var result = value + 1;
-        _nZFlag = result & 0xFF;
-        _NFlag = 0;
-        _HFlag = (value ^ result) & 0x10;
-        busWrite(HL, result & 0xFF);
-        cycleMClock(3);
-    }
-
-    function op_dec_r(opcode as Number) as Void {
-        var value = _regs[(opcode >> 3) & 0x07];
-        var result = value - 1;
-        _nZFlag = result & 0xFF;
-        _NFlag = 1;
-        _HFlag = (value ^ result) & 0x10;
-        _regs[(opcode >> 3) & 0x07] = result & 0xFF;
-        cycleMClock(1);
-    }
-
-    function op_dec_HLptr(opcode as Number) as Void {
-        var HL = (_regs[REG_H] << 8) | _regs[REG_L];
-        var value = busRead(HL);
-        var result = value - 1;
-        _nZFlag = result & 0xFF;
-        _NFlag = 1;
-        _HFlag = (value ^ result) & 0x10;
-        busWrite(HL, result & 0xFF);
-        cycleMClock(3);
-    }
-
-    function op_inc_rr(opcode as Number) as Void {
-        var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
-        set16BitReg(reg, get16BitReg(reg) + 1);
-        cycleMClock(2);
-    }
-
-    function op_dec_rr(opcode as Number) as Void {
-        var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
-        set16BitReg(reg, get16BitReg(reg) - 1);
-        cycleMClock(2);
-    }
-
-    function op_add_HL_rr(opcode as Number) as Void {
-        var HL = get16BitReg(REG_HL);
-        var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
-        var result = HL + reg;
-        set16BitReg(REG_HL, result);
-        _NFlag = 0;
-        _HFlag = (HL ^ reg ^ result) & 0x1000;
-        _CFlag = result & 0x10000;
-        cycleMClock(2);
-    }
-
-    function op_and_r(opcode as Number) as Void {
-        _regs[REG_A] &= _regs[opcode & 0x07];
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 1;
-        _CFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_and_HLptr(opcode as Number) as Void {
-        _regs[REG_A] &= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 1;
-        _CFlag = 0;
-        cycleMClock(2);
-    }
-
-    function op_and_u8(opcode as Number) as Void {
-        _regs[REG_A] &= busRead(_pc);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 1;
-        _CFlag = 0;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_xor_r(opcode as Number) as Void {
-        _regs[REG_A] ^= _regs[opcode & 0x07];
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_xor_HLptr(opcode as Number) as Void {
-        _regs[REG_A] ^= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        cycleMClock(2);
-    }
-
-    function op_xor_u8(opcode as Number) as Void {
-        _regs[REG_A] ^= busRead(_pc);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_or_r(opcode as Number) as Void {
-        _regs[REG_A] |= _regs[opcode & 0x07];
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_or_HLptr(opcode as Number) as Void {
-        _regs[REG_A] |= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        cycleMClock(2);
-    }
-
-    function op_or_u8(opcode as Number) as Void {
-        _regs[REG_A] |= busRead(_pc);
-        _nZFlag = _regs[REG_A];
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 0;
-        _pc++;
-        cycleMClock(2);
-    }
-
-    function op_cpl(opcode as Number) as Void {
-        _regs[REG_A] = (~_regs[REG_A]) & 0xFF;
-        _NFlag = 1;
-        _HFlag = 1;
-        cycleMClock(1);
-    }
-
-    function op_rlca(opcode as Number) as Void {
-        _CFlag = (_regs[REG_A] >> 7) & 0x1;
-        _regs[REG_A] = ((_regs[REG_A] << 1) | _CFlag) & 0xFF;
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_rrca(opcode as Number) as Void {
-        _CFlag = _regs[REG_A] & 0x1;
-        _regs[REG_A] = (_regs[REG_A] >> 1) | (_CFlag << 7);
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_rla(opcode as Number) as Void {
-        var oldCFlag = (_CFlag) ? 1 : 0;
-        _CFlag = (_regs[REG_A] >> 7) & 0x1;
-        _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_rra(opcode as Number) as Void {
-        var oldCFlag = (_CFlag) ? 1 : 0;
-        _CFlag = _regs[REG_A] & 0x1;
-        _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = 0;
-        cycleMClock(1);
-    }
-
-    function op_cb_op(opcode as Number) as Void {
-        opcode = busRead(_pc);
-        _pc++;
-        doCBOP(opcode);
-    }
-
-    function op_jp_u16(opcode as Number) as Void {
-        _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-        cycleMClock(4);
-    }
-
-    function op_jp_hl(opcode as Number) as Void {
-        _pc = get16BitReg(REG_HL);
-        cycleMClock(1);
-    }
-
-    function op_jp_nz(opcode as Number) as Void {
-        if (_nZFlag) {
-            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            cycleMClock(4);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_jp_z(opcode as Number) as Void {
-        if (_nZFlag == 0) {
-            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            cycleMClock(4);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_jp_nc(opcode as Number) as Void {
-        if (_CFlag == 0) {
-            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            cycleMClock(4);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_jp_c(opcode as Number) as Void {
-        if (_CFlag) {
-            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
-            cycleMClock(4);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_jr_s8(opcode as Number) as Void {
-        _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-        cycleMClock(3);
-    }
-
-    function op_jr_nz(opcode as Number) as Void {
-        if (_nZFlag) {
-            _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-            cycleMClock(3);
-        } else {
-            _pc++;
-            cycleMClock(2);
-        }
-    }
-
-    function op_jr_z(opcode as Number) as Void {
-        if (_nZFlag == 0) {
-            _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-            cycleMClock(3);
-        } else {
-            _pc++;
-            cycleMClock(2);
-        }
-    }
-
-    function op_jr_nc(opcode as Number) as Void {
-        if (_CFlag == 0) {
-            _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-            cycleMClock(3);
-        } else {
-            _pc++;
-            cycleMClock(2);
-        }
-    }
-
-    function op_jr_c(opcode as Number) as Void {
-        if (_CFlag) {
-            _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
-            cycleMClock(3);
-        } else {
-            _pc++;
-            cycleMClock(2);
-        }
-    }
-
-    function op_call_u16(opcode as Number) as Void {
-        var callAddr = busRead(_pc);
-        _pc++;
-        callAddr |= busRead(_pc) << 8;
-        _pc++;
-        _sp--;
-        busWrite(_sp, _pc >> 8);
-        _sp--;
-        busWrite(_sp, _pc & 0xFF);
-        _pc = callAddr;
-        cycleMClock(6);
-    }
-
-    function op_call_nz(opcode as Number) as Void {
-        if (_nZFlag) {
-            var callAddr = busRead(_pc);
-            _pc++;
-            callAddr |= busRead(_pc) << 8;
-            _pc++;
-            _sp--;
-            busWrite(_sp, _pc >> 8);
-            _sp--;
-            busWrite(_sp, _pc & 0xFF);
-            _pc = callAddr;
-            cycleMClock(6);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_call_z(opcode as Number) as Void {
-        if (_nZFlag == 0) {
-            var callAddr = busRead(_pc);
-            _pc++;
-            callAddr |= busRead(_pc) << 8;
-            _pc++;
-            _sp--;
-            busWrite(_sp, _pc >> 8);
-            _sp--;
-            busWrite(_sp, _pc & 0xFF);
-            _pc = callAddr;
-            cycleMClock(6);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_call_nc(opcode as Number) as Void {
-        if (_CFlag == 0) {
-            var callAddr = busRead(_pc);
-            _pc++;
-            callAddr |= busRead(_pc) << 8;
-            _pc++;
-            _sp--;
-            busWrite(_sp, _pc >> 8);
-            _sp--;
-            busWrite(_sp, _pc & 0xFF);
-            _pc = callAddr;
-            cycleMClock(6);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-    function op_call_c(opcode as Number) as Void {
-        if (_CFlag) {
-            var callAddr = busRead(_pc);
-            _pc++;
-            callAddr |= busRead(_pc) << 8;
-            _pc++;
-            _sp--;
-            busWrite(_sp, _pc >> 8);
-            _sp--;
-            busWrite(_sp, _pc & 0xFF);
-            _pc = callAddr;
-            cycleMClock(6);
-        } else {
-            _pc += 2;
-            cycleMClock(3);
-        }
-    }
-
-
-    function op_ret_and_reti(opcode as Number) as Void {
-        if (opcode & 0x10) {
-            _ime = true;
-        }
-        _pc = busRead(_sp);
-        _sp += 1;
-        _pc |= busRead(_sp) << 8; 
-        _sp += 1;
-        cycleMClock(4);
-    }
-
-    function op_ret_nz(opcode as Number) as Void {
-        if (_nZFlag) {
-            _pc = busRead(_sp);
-            _sp += 1;
-            _pc |= busRead(_sp) << 8; 
-            _sp += 1;
-            cycleMClock(5);
-        } else {
-            cycleMClock(2);
-        }
-    }
-
-    function op_ret_z(opcode as Number) as Void {
-        if (_nZFlag == 0) {
-            _pc = busRead(_sp);
-            _sp += 1;
-            _pc |= busRead(_sp) << 8; 
-            _sp += 1;
-            cycleMClock(5);
-        } else {
-            cycleMClock(2);
-        }
-    }
-
-    function op_ret_nc(opcode as Number) as Void {
-        if (_CFlag == 0) {
-            _pc = busRead(_sp);
-            _sp += 1;
-            _pc |= busRead(_sp) << 8; 
-            _sp += 1;
-            cycleMClock(5);
-        } else {
-            cycleMClock(2);
-        }
-    }
-
-    function op_ret_c(opcode as Number) as Void {
-        if (_CFlag) {
-            _pc = busRead(_sp);
-            _sp += 1;
-            _pc |= busRead(_sp) << 8; 
-            _sp += 1;
-            cycleMClock(5);
-        } else {
-            cycleMClock(2);
-        }
-    }
-
-    function op_rst(opcode as Number) as Void {
-        _sp -= 1;
-        busWrite(_sp, _pc >> 8);
-        _sp -= 1;
-        busWrite(_sp, _pc & 0xFF);
-        _pc = opcode & 0x38;
-        cycleMClock(4);
-    }
-
-    function op_ccf(opcode as Number) as Void {
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = (_CFlag == 0) ? 1 : 0;
-        cycleMClock(1);
-    }
-
-    function op_scf(opcode as Number) as Void {
-        _NFlag = 0;
-        _HFlag = 0;
-        _CFlag = 1;
-        cycleMClock(1);
-    }
-
-    function op_push_rr(opcode as Number) as Void {
-        var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
-        _sp -= 1;
-        busWrite(_sp, pushData >> 8);
-        _sp -= 1;
-        busWrite(_sp, pushData & 0xFF);
-        cycleMClock(4);
-    }
-
-    function op_push_AF(opcode as Number) as Void {
-        var pushData = _regs[REG_A] << 8;
-        pushData |= (_nZFlag == 0) ? 0x80 : 0x00;
-        pushData |= (_NFlag) ? 0x40 : 0x00;
-        pushData |= (_HFlag) ? 0x20 : 0x00;
-        pushData |= (_CFlag) ? 0x10 : 0x00;
-        _sp -= 1;
-        busWrite(_sp, pushData >> 8);
-        _sp -= 1;
-        busWrite(_sp, pushData & 0xFF);
-        cycleMClock(4);
-    }
-
-    function op_pop_rr(opcode as Number) as Void {
-        var popData = busRead(_sp);
-        _sp += 1;
-        popData |= busRead(_sp) << 8; 
-        _sp += 1;
-        set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
-        cycleMClock(3);
-    }
-
-    function op_pop_AF(opcode as Number) as Void {
-        var popData = busRead(_sp);
-        _nZFlag = ((popData & 0x80) == 0) ? 1 : 0;
-        _NFlag = popData & 0x40;
-        _HFlag = popData & 0x20;
-        _CFlag = popData & 0x10;
-        _sp += 1;
-        _regs[REG_A] = busRead(_sp); 
-        _sp += 1;
-        cycleMClock(3);
-    }
-
-    function op_add_SP_s8(opcode as Number) as Void {
-        var offset = (busRead(_pc) << 24) >> 24;
-        var result = _sp + offset;
-
-        var carry = _sp ^ offset ^ result;
-        _nZFlag = 1;
-        _NFlag = 0;
-        _HFlag = carry & 0x10;
-        _CFlag = carry & 0x100;
-
-        _sp = result & 0xFFFF;
-        _pc++;
-        cycleMClock(4);
-    }
-
-    function op_di(opcode as Number) as Void {
-        _ime = false;
-        _imeNext = false;
-        cycleMClock(1);
-    }
-
-    function op_ei(opcode as Number) as Void {
-        _imeNext = true;
-        cycleMClock(1);
-    }
-
-    function op_halt(opcode as Number) as Void {
-        _state = CPU_STATE_START_HALT;
-        cycleMClock(1);
-    }
-
-    function op_daa(opcode as Number) as Void {
-        var adj = 0;
-        if ((_HFlag != 0) || ((_NFlag == 0) && ((_regs[REG_A] & 0xF) > 0x9))) {
-            adj += 0x6;
-        }
-        if ((_CFlag != 0) || ((_NFlag == 0) && (_regs[REG_A] > 0x99))) {
-            adj += 0x60;
-            if (_NFlag == 0) {
-                _CFlag = 1;
+    function emuCycle() as Void {
+        _waitTime += System.getTimer() - _lastWaitTime;
+        for (var i = 0; i < STEPS_PER_CYCLE; i++) {
+            var opcode = 0x00;
+
+            // Check for Interrupt
+            if (_ime && (_if & _ie & 0x1F) != 0) {
+                var readyInts = _if & _ie;
+                _ime = false;
+                for (var bit = 0; bit < INT_END; bit++) {
+                    if (readyInts & 0x1) {
+                        // Clear Interrupt Flag
+                        _if &= ~(0x1 << bit);
+                        // Push PC to Stack
+                        _sp--;
+                        busWrite(_sp, _pc >> 8);
+                        _sp--;
+                        busWrite(_sp, _pc & 0xFF);
+                        // Set PC to ISR
+                        _pc = 0x40 + (bit * 0x8);
+                        // Make sure state is correct and add delay
+                        _state = CPU_STATE_RUNNING;
+                        cycleMClock(5);
+                        break;
+                    }
+                    readyInts >>= 1;
+                } 
+            } else {
+                switch (_state) {
+                    case CPU_STATE_RUNNING: {
+                        opcode = busRead(_pc);
+                        _pc++;
+                        break;
+                    }
+
+                    case CPU_STATE_START_HALT: 
+                    case CPU_STATE_HALTED: {
+                        if ((_if & _ie & 0x1F) != 0) {
+                            opcode = busRead(_pc);
+                            // Simulate HALT Bug
+                            if (_state != CPU_STATE_START_HALT) {
+                                _pc++;
+                            }
+                            _state = CPU_STATE_RUNNING;
+                        } else {
+                            _state = CPU_STATE_HALTED;
+                            // Look at better methods of handling halt
+                            cycleMClock(4);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (PRINT_TRACE) {
+                if (_printEnable) {
+                    System.println(
+                        "0x" + (_pc - 1).format("%04X")
+                        + " " + _opStrings[opcode]
+                        + " | SP:0x" + _sp.format("%04X")
+                        + " A:0x" + _regs[REG_A].format("%02X")
+                        + " B:0x" + _regs[REG_B].format("%02X")
+                        + " C:0x" + _regs[REG_C].format("%02X")
+                        + " D:0x" + _regs[REG_D].format("%02X")
+                        + " E:0x" + _regs[REG_E].format("%02X")
+                        + " H:0x" + _regs[REG_H].format("%02X")
+                        + " L:0x" + _regs[REG_L].format("%02X")
+                        + " Z:" + (_nZFlag == 0 ? "1" : "0")
+                        + " N:" + (_NFlag != 0 ? "1" : "0")
+                        + " H:" + (_HFlag != 0 ? "1" : "0")
+                        + " C:" + (_CFlag != 0 ? "1" : "0")
+                    );
+                }
+            }
+
+            // TODO: I really just need to use a precompiler to split this file up at this point
+            if (opcode <= 0x7F) {
+                if (opcode <= 0x3F) {
+                    if (opcode <= 0x1F) {
+                        if (opcode <= 0x0F) {
+                            if (opcode <= 0x07) {
+                                if (opcode <= 0x03) {
+                                    if (opcode <= 0x01) {
+                                        if (opcode <= 0x00) {
+                                            // 0x00: NOP
+                                            cycleMClock(1);
+                                        } else {
+                                            // 0x01: LD BC,d16
+                                            var value = busRead(_pc);
+                                                _pc++;
+                                                value |= busRead(_pc) << 8;
+                                                _pc++;
+                                                set16BitReg((opcode >> 4) as RegistersEnum, value);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x02) {
+                                            // 0x02: LD (BC),A
+                                            busWrite((_regs[REG_B] << 8) | _regs[REG_C], _regs[REG_A]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x03: INC BC
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) + 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x05) {
+                                        if (opcode <= 0x04) {
+                                            // 0x04: INC B
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x05: DEC B
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x06) {
+                                            // 0x06: LD B,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x07: RLCA
+                                            _CFlag = (_regs[REG_A] >> 7) & 0x1;
+                                                _regs[REG_A] = ((_regs[REG_A] << 1) | _CFlag) & 0xFF;
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x0B) {
+                                    if (opcode <= 0x09) {
+                                        if (opcode <= 0x08) {
+                                            // 0x08: LD (a16),SP
+                                            var addr = busRead(_pc);
+                                                _pc++;
+                                                addr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                busWrite(addr, _sp & 0xFF);
+                                                busWrite(addr + 1, (_sp >> 8) & 0xFF);
+                                                cycleMClock(5);
+                                        } else {
+                                            // 0x09: ADD HL,BC
+                                            var HL = get16BitReg(REG_HL);
+                                                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                var result = HL + reg;
+                                                set16BitReg(REG_HL, result);
+                                                _NFlag = 0;
+                                                _HFlag = (HL ^ reg ^ result) & 0x1000;
+                                                _CFlag = result & 0x10000;
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x0A) {
+                                            // 0x0A: LD A,(BC)
+                                            _regs[REG_A] = busRead((_regs[REG_B] << 8) | _regs[REG_C]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x0B: DEC BC
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) - 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x0D) {
+                                        if (opcode <= 0x0C) {
+                                            // 0x0C: INC C
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x0D: DEC C
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x0E) {
+                                            // 0x0E: LD C,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x0F: RRCA
+                                            _CFlag = _regs[REG_A] & 0x1;
+                                                _regs[REG_A] = (_regs[REG_A] >> 1) | (_CFlag << 7);
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0x17) {
+                                if (opcode <= 0x13) {
+                                    if (opcode <= 0x11) {
+                                        if (opcode <= 0x10) {
+                                            // 0x10: STOP
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        } else {
+                                            // 0x11: LD DE,d16
+                                            var value = busRead(_pc);
+                                                _pc++;
+                                                value |= busRead(_pc) << 8;
+                                                _pc++;
+                                                set16BitReg((opcode >> 4) as RegistersEnum, value);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x12) {
+                                            // 0x12: LD (DE),A
+                                            busWrite((_regs[REG_D] << 8) | _regs[REG_E], _regs[REG_A]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x13: INC DE
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) + 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x15) {
+                                        if (opcode <= 0x14) {
+                                            // 0x14: INC D
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x15: DEC D
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x16) {
+                                            // 0x16: LD D,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x17: RLA
+                                            var oldCFlag = (_CFlag) ? 1 : 0;
+                                                _CFlag = (_regs[REG_A] >> 7) & 0x1;
+                                                _regs[REG_A] = ((_regs[REG_A] << 1) | oldCFlag) & 0xFF;
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x1B) {
+                                    if (opcode <= 0x19) {
+                                        if (opcode <= 0x18) {
+                                            // 0x18: JR r8
+                                            _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0x19: ADD HL,DE
+                                            var HL = get16BitReg(REG_HL);
+                                                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                var result = HL + reg;
+                                                set16BitReg(REG_HL, result);
+                                                _NFlag = 0;
+                                                _HFlag = (HL ^ reg ^ result) & 0x1000;
+                                                _CFlag = result & 0x10000;
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x1A) {
+                                            // 0x1A: LD A,(DE)
+                                            _regs[REG_A] = busRead((_regs[REG_D] << 8) | _regs[REG_E]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x1B: DEC DE
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) - 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x1D) {
+                                        if (opcode <= 0x1C) {
+                                            // 0x1C: INC E
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x1D: DEC E
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x1E) {
+                                            // 0x1E: LD E,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x1F: RRA
+                                            var oldCFlag = (_CFlag) ? 1 : 0;
+                                                _CFlag = _regs[REG_A] & 0x1;
+                                                _regs[REG_A] = (_regs[REG_A] >> 1) | (oldCFlag << 7);
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (opcode <= 0x2F) {
+                            if (opcode <= 0x27) {
+                                if (opcode <= 0x23) {
+                                    if (opcode <= 0x21) {
+                                        if (opcode <= 0x20) {
+                                            // 0x20: JR NZ,r8
+                                            if (_nZFlag) {
+                                                _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+                                                cycleMClock(3);
+                                                } else {
+                                                _pc++;
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0x21: LD HL,d16
+                                            var value = busRead(_pc);
+                                                _pc++;
+                                                value |= busRead(_pc) << 8;
+                                                _pc++;
+                                                set16BitReg((opcode >> 4) as RegistersEnum, value);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x22) {
+                                            // 0x22: LDI (HL),A
+                                            var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                busWrite(hl, _regs[REG_A]);
+                                                hl++;
+                                                _regs[REG_H] = (hl >> 8) & 0xFF;
+                                                _regs[REG_L] = hl & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x23: INC HL
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) + 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x25) {
+                                        if (opcode <= 0x24) {
+                                            // 0x24: INC H
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x25: DEC H
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x26) {
+                                            // 0x26: LD H,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x27: DAA
+                                            var adj = 0;
+                                                if ((_HFlag != 0) || ((_NFlag == 0) && ((_regs[REG_A] & 0xF) > 0x9))) {
+                                                adj += 0x6;
+                                                }
+                                                if ((_CFlag != 0) || ((_NFlag == 0) && (_regs[REG_A] > 0x99))) {
+                                                adj += 0x60;
+                                                if (_NFlag == 0) {
+                                                _CFlag = 1;
+                                                }
+                                                }
+                                                if (_NFlag != 0) {
+                                                _regs[REG_A] = (_regs[REG_A] - adj) & 0xFF;
+                                                } else {
+                                                _regs[REG_A] = (_regs[REG_A] + adj) & 0xFF;
+                                                }
+                                                _nZFlag = _regs[REG_A]; 
+                                                _HFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x2B) {
+                                    if (opcode <= 0x29) {
+                                        if (opcode <= 0x28) {
+                                            // 0x28: JR Z,r8
+                                            if (_nZFlag == 0) {
+                                                _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+                                                cycleMClock(3);
+                                                } else {
+                                                _pc++;
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0x29: ADD HL,HL
+                                            var HL = get16BitReg(REG_HL);
+                                                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                var result = HL + reg;
+                                                set16BitReg(REG_HL, result);
+                                                _NFlag = 0;
+                                                _HFlag = (HL ^ reg ^ result) & 0x1000;
+                                                _CFlag = result & 0x10000;
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x2A) {
+                                            // 0x2A: LDI A,(HL)
+                                            var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                _regs[REG_A] = busRead(hl);
+                                                hl++;
+                                                _regs[REG_H] = (hl >> 8) & 0xFF;
+                                                _regs[REG_L] = hl & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x2B: DEC HL
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) - 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x2D) {
+                                        if (opcode <= 0x2C) {
+                                            // 0x2C: INC L
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x2D: DEC L
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x2E) {
+                                            // 0x2E: LD L,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x2F: CPL
+                                            _regs[REG_A] = (~_regs[REG_A]) & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = 1;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0x37) {
+                                if (opcode <= 0x33) {
+                                    if (opcode <= 0x31) {
+                                        if (opcode <= 0x30) {
+                                            // 0x30: JR NC,r8
+                                            if (_CFlag == 0) {
+                                                _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+                                                cycleMClock(3);
+                                                } else {
+                                                _pc++;
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0x31: LD SP,d16
+                                            var value = busRead(_pc);
+                                                _pc++;
+                                                value |= busRead(_pc) << 8;
+                                                _pc++;
+                                                set16BitReg((opcode >> 4) as RegistersEnum, value);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x32) {
+                                            // 0x32: LDD (HL),A
+                                            var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                busWrite(hl, _regs[REG_A]);
+                                                hl--;
+                                                _regs[REG_H] = (hl >> 8) & 0xFF;
+                                                _regs[REG_L] = hl & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x33: INC SP
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) + 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x35) {
+                                        if (opcode <= 0x34) {
+                                            // 0x34: INC (HL)
+                                            var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                var value = busRead(HL);
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                busWrite(HL, result & 0xFF);
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0x35: DEC (HL)
+                                            var HL = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                var value = busRead(HL);
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                busWrite(HL, result & 0xFF);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x36) {
+                                            // 0x36: LD (HL),d8
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], busRead(_pc));
+                                                _pc++;
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0x37: SCF
+                                            _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 1;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x3B) {
+                                    if (opcode <= 0x39) {
+                                        if (opcode <= 0x38) {
+                                            // 0x38: JR C,r8
+                                            if (_CFlag) {
+                                                _pc = (_pc + 1 + ((busRead(_pc) << 24) >> 24)) & 0xFFFF;
+                                                cycleMClock(3);
+                                                } else {
+                                                _pc++;
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0x39: ADD HL,SP
+                                            var HL = get16BitReg(REG_HL);
+                                                var reg = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                var result = HL + reg;
+                                                set16BitReg(REG_HL, result);
+                                                _NFlag = 0;
+                                                _HFlag = (HL ^ reg ^ result) & 0x1000;
+                                                _CFlag = result & 0x10000;
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x3A) {
+                                            // 0x3A: LDD A,(HL)
+                                            var hl = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                _regs[REG_A] = busRead(hl);
+                                                hl--;
+                                                _regs[REG_H] = (hl >> 8) & 0xFF;
+                                                _regs[REG_L] = hl & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x3B: DEC SP
+                                            var reg = ((opcode >> 4) & 0x3) as RegistersEnum;
+                                                set16BitReg(reg, get16BitReg(reg) - 1);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x3D) {
+                                        if (opcode <= 0x3C) {
+                                            // 0x3C: INC A
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value + 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 0;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x3D: DEC A
+                                            var value = _regs[(opcode >> 3) & 0x07];
+                                                var result = value - 1;
+                                                _nZFlag = result & 0xFF;
+                                                _NFlag = 1;
+                                                _HFlag = (value ^ result) & 0x10;
+                                                _regs[(opcode >> 3) & 0x07] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x3E) {
+                                            // 0x3E: LD A,d8
+                                            _regs[(opcode >> 3) & 0x07] = busRead(_pc);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x3F: CCF
+                                            _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = (_CFlag == 0) ? 1 : 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if (opcode <= 0x5F) {
+                        if (opcode <= 0x4F) {
+                            if (opcode <= 0x47) {
+                                if (opcode <= 0x43) {
+                                    if (opcode <= 0x41) {
+                                        if (opcode <= 0x40) {
+                                            // 0x40: LD B,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x41: LD B,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x42) {
+                                            // 0x42: LD B,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x43: LD B,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x45) {
+                                        if (opcode <= 0x44) {
+                                            // 0x44: LD B,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x45: LD B,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x46) {
+                                            // 0x46: LD B,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x47: LD B,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x4B) {
+                                    if (opcode <= 0x49) {
+                                        if (opcode <= 0x48) {
+                                            // 0x48: LD C,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x49: LD C,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x4A) {
+                                            // 0x4A: LD C,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x4B: LD C,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x4D) {
+                                        if (opcode <= 0x4C) {
+                                            // 0x4C: LD C,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x4D: LD C,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x4E) {
+                                            // 0x4E: LD C,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x4F: LD C,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0x57) {
+                                if (opcode <= 0x53) {
+                                    if (opcode <= 0x51) {
+                                        if (opcode <= 0x50) {
+                                            // 0x50: LD D,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x51: LD D,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x52) {
+                                            // 0x52: LD D,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x53: LD D,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x55) {
+                                        if (opcode <= 0x54) {
+                                            // 0x54: LD D,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x55: LD D,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x56) {
+                                            // 0x56: LD D,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x57: LD D,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x5B) {
+                                    if (opcode <= 0x59) {
+                                        if (opcode <= 0x58) {
+                                            // 0x58: LD E,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x59: LD E,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x5A) {
+                                            // 0x5A: LD E,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x5B: LD E,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x5D) {
+                                        if (opcode <= 0x5C) {
+                                            // 0x5C: LD E,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x5D: LD E,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x5E) {
+                                            // 0x5E: LD E,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x5F: LD E,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (opcode <= 0x6F) {
+                            if (opcode <= 0x67) {
+                                if (opcode <= 0x63) {
+                                    if (opcode <= 0x61) {
+                                        if (opcode <= 0x60) {
+                                            // 0x60: LD H,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x61: LD H,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x62) {
+                                            // 0x62: LD H,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x63: LD H,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x65) {
+                                        if (opcode <= 0x64) {
+                                            // 0x64: LD H,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x65: LD H,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x66) {
+                                            // 0x66: LD H,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x67: LD H,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x6B) {
+                                    if (opcode <= 0x69) {
+                                        if (opcode <= 0x68) {
+                                            // 0x68: LD L,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x69: LD L,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x6A) {
+                                            // 0x6A: LD L,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x6B: LD L,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x6D) {
+                                        if (opcode <= 0x6C) {
+                                            // 0x6C: LD L,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x6D: LD L,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x6E) {
+                                            // 0x6E: LD L,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x6F: LD L,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0x77) {
+                                if (opcode <= 0x73) {
+                                    if (opcode <= 0x71) {
+                                        if (opcode <= 0x70) {
+                                            // 0x70: LD (HL),B
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x71: LD (HL),C
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x72) {
+                                            // 0x72: LD (HL),D
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x73: LD (HL),E
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x75) {
+                                        if (opcode <= 0x74) {
+                                            // 0x74: LD (HL),H
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x75: LD (HL),L
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x76) {
+                                            // 0x76: HALT
+                                            _state = CPU_STATE_START_HALT;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x77: LD (HL),A
+                                            busWrite((_regs[REG_H] << 8) | _regs[REG_L], _regs[opcode & 0x07]);
+                                                cycleMClock(2);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x7B) {
+                                    if (opcode <= 0x79) {
+                                        if (opcode <= 0x78) {
+                                            // 0x78: LD A,B
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x79: LD A,C
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x7A) {
+                                            // 0x7A: LD A,D
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x7B: LD A,E
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x7D) {
+                                        if (opcode <= 0x7C) {
+                                            // 0x7C: LD A,H
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x7D: LD A,L
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x7E) {
+                                            // 0x7E: LD A,(HL)
+                                            _regs[(opcode >> 3) & 0x07] = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x7F: LD A,A
+                                            _regs[(opcode >> 3) & 0x07] = _regs[opcode & 0x07];
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (opcode <= 0xBF) {
+                    if (opcode <= 0x9F) {
+                        if (opcode <= 0x8F) {
+                            if (opcode <= 0x87) {
+                                if (opcode <= 0x83) {
+                                    if (opcode <= 0x81) {
+                                        if (opcode <= 0x80) {
+                                            // 0x80: ADD A,B
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x81: ADD A,C
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x82) {
+                                            // 0x82: ADD A,D
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x83: ADD A,E
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x85) {
+                                        if (opcode <= 0x84) {
+                                            // 0x84: ADD A,H
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x85: ADD A,L
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x86) {
+                                            // 0x86: ADD A,(HL)
+                                            var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x87: ADD A,A
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x8B) {
+                                    if (opcode <= 0x89) {
+                                        if (opcode <= 0x88) {
+                                            // 0x88: ADC A,B
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x89: ADC A,C
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x8A) {
+                                            // 0x8A: ADC A,D
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x8B: ADC A,E
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x8D) {
+                                        if (opcode <= 0x8C) {
+                                            // 0x8C: ADC A,H
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x8D: ADC A,L
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x8E) {
+                                            // 0x8E: ADC A,(HL)
+                                            var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x8F: ADC A,A
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0x97) {
+                                if (opcode <= 0x93) {
+                                    if (opcode <= 0x91) {
+                                        if (opcode <= 0x90) {
+                                            // 0x90: SUB B
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x91: SUB C
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x92) {
+                                            // 0x92: SUB D
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x93: SUB E
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x95) {
+                                        if (opcode <= 0x94) {
+                                            // 0x94: SUB H
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x95: SUB L
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x96) {
+                                            // 0x96: SUB (HL)
+                                            var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x97: SUB A
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0x9B) {
+                                    if (opcode <= 0x99) {
+                                        if (opcode <= 0x98) {
+                                            // 0x98: SBC A,B
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x99: SBC A,C
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x9A) {
+                                            // 0x9A: SBC A,D
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x9B: SBC A,E
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0x9D) {
+                                        if (opcode <= 0x9C) {
+                                            // 0x9C: SBC A,H
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0x9D: SBC A,L
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0x9E) {
+                                            // 0x9E: SBC A,(HL)
+                                            var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0x9F: SBC A,A
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (opcode <= 0xAF) {
+                            if (opcode <= 0xA7) {
+                                if (opcode <= 0xA3) {
+                                    if (opcode <= 0xA1) {
+                                        if (opcode <= 0xA0) {
+                                            // 0xA0: AND B
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xA1: AND C
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xA2) {
+                                            // 0xA2: AND D
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xA3: AND E
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xA5) {
+                                        if (opcode <= 0xA4) {
+                                            // 0xA4: AND H
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xA5: AND L
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xA6) {
+                                            // 0xA6: AND (HL)
+                                            _regs[REG_A] &= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xA7: AND A
+                                            _regs[REG_A] &= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xAB) {
+                                    if (opcode <= 0xA9) {
+                                        if (opcode <= 0xA8) {
+                                            // 0xA8: XOR B
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xA9: XOR C
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xAA) {
+                                            // 0xAA: XOR D
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xAB: XOR E
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xAD) {
+                                        if (opcode <= 0xAC) {
+                                            // 0xAC: XOR H
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xAD: XOR L
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xAE) {
+                                            // 0xAE: XOR (HL)
+                                            _regs[REG_A] ^= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xAF: XOR A
+                                            _regs[REG_A] ^= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0xB7) {
+                                if (opcode <= 0xB3) {
+                                    if (opcode <= 0xB1) {
+                                        if (opcode <= 0xB0) {
+                                            // 0xB0: OR B
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xB1: OR C
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xB2) {
+                                            // 0xB2: OR D
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xB3: OR E
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xB5) {
+                                        if (opcode <= 0xB4) {
+                                            // 0xB4: OR H
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xB5: OR L
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xB6) {
+                                            // 0xB6: OR (HL)
+                                            _regs[REG_A] |= busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xB7: OR A
+                                            _regs[REG_A] |= _regs[opcode & 0x07];
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xBB) {
+                                    if (opcode <= 0xB9) {
+                                        if (opcode <= 0xB8) {
+                                            // 0xB8: CP B
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xB9: CP C
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xBA) {
+                                            // 0xBA: CP D
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xBB: CP E
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xBD) {
+                                        if (opcode <= 0xBC) {
+                                            // 0xBC: CP H
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        } else {
+                                            // 0xBD: CP L
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xBE) {
+                                            // 0xBE: CP (HL)
+                                            var value = busRead((_regs[REG_H] << 8) | _regs[REG_L]);
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xBF: CP A
+                                            var value = _regs[opcode & 0x07];
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if (opcode <= 0xDF) {
+                        if (opcode <= 0xCF) {
+                            if (opcode <= 0xC7) {
+                                if (opcode <= 0xC3) {
+                                    if (opcode <= 0xC1) {
+                                        if (opcode <= 0xC0) {
+                                            // 0xC0: RET NZ
+                                            if (_nZFlag) {
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(5);
+                                                } else {
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0xC1: POP BC
+                                            var popData = busRead(_sp);
+                                                _sp += 1;
+                                                popData |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xC2) {
+                                            // 0xC2: JP NZ,a16
+                                            if (_nZFlag) {
+                                                _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+                                                cycleMClock(4);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xC3: JP a16
+                                            _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xC5) {
+                                        if (opcode <= 0xC4) {
+                                            // 0xC4: CALL NZ,a16
+                                            if (_nZFlag) {
+                                                var callAddr = busRead(_pc);
+                                                _pc++;
+                                                callAddr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _sp--;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp--;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = callAddr;
+                                                cycleMClock(6);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xC5: PUSH BC
+                                            var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData & 0xFF);
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xC6) {
+                                            // 0xC6: ADD A,d8
+                                            var value = busRead(_pc);
+                                                var result = _regs[REG_A] + value;
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xC7: RST 00H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xCB) {
+                                    if (opcode <= 0xC9) {
+                                        if (opcode <= 0xC8) {
+                                            // 0xC8: RET Z
+                                            if (_nZFlag == 0) {
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(5);
+                                                } else {
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0xC9: RET
+                                            if (opcode & 0x10) {
+                                                _ime = true;
+                                                }
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xCA) {
+                                            // 0xCA: JP Z,a16
+                                            if (_nZFlag == 0) {
+                                                _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+                                                cycleMClock(4);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xCB: CB
+                                            opcode = busRead(_pc);
+                                                _pc++;
+                                                doCBOP(opcode);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xCD) {
+                                        if (opcode <= 0xCC) {
+                                            // 0xCC: CALL Z,a16
+                                            if (_nZFlag == 0) {
+                                                var callAddr = busRead(_pc);
+                                                _pc++;
+                                                callAddr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _sp--;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp--;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = callAddr;
+                                                cycleMClock(6);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xCD: CALL a16
+                                            var callAddr = busRead(_pc);
+                                                _pc++;
+                                                callAddr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _sp--;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp--;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = callAddr;
+                                                cycleMClock(6);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xCE) {
+                                            // 0xCE: ADC A,d8
+                                            var value = busRead(_pc);
+                                                var result = _regs[REG_A] + value + (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 0, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xCF: RST 08H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0xD7) {
+                                if (opcode <= 0xD3) {
+                                    if (opcode <= 0xD1) {
+                                        if (opcode <= 0xD0) {
+                                            // 0xD0: RET NC
+                                            if (_CFlag == 0) {
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(5);
+                                                } else {
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0xD1: POP DE
+                                            var popData = busRead(_sp);
+                                                _sp += 1;
+                                                popData |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xD2) {
+                                            // 0xD2: JP NC,a16
+                                            if (_CFlag == 0) {
+                                                _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+                                                cycleMClock(4);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xD3: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xD5) {
+                                        if (opcode <= 0xD4) {
+                                            // 0xD4: CALL NC,a16
+                                            if (_CFlag == 0) {
+                                                var callAddr = busRead(_pc);
+                                                _pc++;
+                                                callAddr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _sp--;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp--;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = callAddr;
+                                                cycleMClock(6);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xD5: PUSH DE
+                                            var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData & 0xFF);
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xD6) {
+                                            // 0xD6: SUB d8
+                                            var value = busRead(_pc);
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xD7: RST 10H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xDB) {
+                                    if (opcode <= 0xD9) {
+                                        if (opcode <= 0xD8) {
+                                            // 0xD8: RET C
+                                            if (_CFlag) {
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(5);
+                                                } else {
+                                                cycleMClock(2);
+                                                }
+                                        } else {
+                                            // 0xD9: RETI
+                                            if (opcode & 0x10) {
+                                                _ime = true;
+                                                }
+                                                _pc = busRead(_sp);
+                                                _sp += 1;
+                                                _pc |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xDA) {
+                                            // 0xDA: JP C,a16
+                                            if (_CFlag) {
+                                                _pc = (busRead(_pc + 1) << 8) | busRead(_pc);
+                                                cycleMClock(4);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xDB: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xDD) {
+                                        if (opcode <= 0xDC) {
+                                            // 0xDC: CALL C,a16
+                                            if (_CFlag) {
+                                                var callAddr = busRead(_pc);
+                                                _pc++;
+                                                callAddr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _sp--;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp--;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = callAddr;
+                                                cycleMClock(6);
+                                                } else {
+                                                _pc += 2;
+                                                cycleMClock(3);
+                                                }
+                                        } else {
+                                            // 0xDD: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    } else {
+                                        if (opcode <= 0xDE) {
+                                            // 0xDE: SBC A,d8
+                                            var value = busRead(_pc);
+                                                var result = _regs[REG_A] - value - (_CFlag ? 1 : 0);
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _regs[REG_A] = result & 0xFF;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xDF: RST 18H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (opcode <= 0xEF) {
+                            if (opcode <= 0xE7) {
+                                if (opcode <= 0xE3) {
+                                    if (opcode <= 0xE1) {
+                                        if (opcode <= 0xE0) {
+                                            // 0xE0: LDH (a8),A
+                                            busWrite(0xFF00 | busRead(_pc), _regs[REG_A]);
+                                                _pc++;
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0xE1: POP HL
+                                            var popData = busRead(_sp);
+                                                _sp += 1;
+                                                popData |= busRead(_sp) << 8; 
+                                                _sp += 1;
+                                                set16BitReg(((opcode >> 4) & 0x3) as RegistersEnum, popData);
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xE2) {
+                                            // 0xE2: LD (C),A
+                                            busWrite(0xFF00 | _regs[REG_C], _regs[REG_A]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xE3: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xE5) {
+                                        if (opcode <= 0xE4) {
+                                            // 0xE4: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        } else {
+                                            // 0xE5: PUSH HL
+                                            var pushData = get16BitReg(((opcode >> 4) & 0x3) as RegistersEnum);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData & 0xFF);
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xE6) {
+                                            // 0xE6: AND d8
+                                            _regs[REG_A] &= busRead(_pc);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 1;
+                                                _CFlag = 0;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xE7: RST 20H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xEB) {
+                                    if (opcode <= 0xE9) {
+                                        if (opcode <= 0xE8) {
+                                            // 0xE8: ADD SP,r8
+                                            var offset = (busRead(_pc) << 24) >> 24;
+                                                var result = _sp + offset;
+                                                
+                                                var carry = _sp ^ offset ^ result;
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = carry & 0x10;
+                                                _CFlag = carry & 0x100;
+                                                
+                                                _sp = result & 0xFFFF;
+                                                _pc++;
+                                                cycleMClock(4);
+                                        } else {
+                                            // 0xE9: JP HL
+                                            _pc = get16BitReg(REG_HL);
+                                                cycleMClock(1);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xEA) {
+                                            // 0xEA: LD (a16),A
+                                            var addr = busRead(_pc);
+                                                _pc++;
+                                                addr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                busWrite(addr, _regs[REG_A]);
+                                                cycleMClock(4);
+                                        } else {
+                                            // 0xEB: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xED) {
+                                        if (opcode <= 0xEC) {
+                                            // 0xEC: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        } else {
+                                            // 0xED: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    } else {
+                                        if (opcode <= 0xEE) {
+                                            // 0xEE: XOR d8
+                                            _regs[REG_A] ^= busRead(_pc);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xEF: RST 28H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (opcode <= 0xF7) {
+                                if (opcode <= 0xF3) {
+                                    if (opcode <= 0xF1) {
+                                        if (opcode <= 0xF0) {
+                                            // 0xF0: LDH A,(a8)
+                                            _regs[REG_A] = busRead(0xFF00 | busRead(_pc));
+                                                _pc++;
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0xF1: POP AF
+                                            var popData = busRead(_sp);
+                                                _nZFlag = ((popData & 0x80) == 0) ? 1 : 0;
+                                                _NFlag = popData & 0x40;
+                                                _HFlag = popData & 0x20;
+                                                _CFlag = popData & 0x10;
+                                                _sp += 1;
+                                                _regs[REG_A] = busRead(_sp); 
+                                                _sp += 1;
+                                                cycleMClock(3);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xF2) {
+                                            // 0xF2: LD A,(C)
+                                            _regs[REG_A] = busRead(0xFF00 | _regs[REG_C]);
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xF3: DI
+                                            _ime = false;
+                                                _imeNext = false;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xF5) {
+                                        if (opcode <= 0xF4) {
+                                            // 0xF4: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        } else {
+                                            // 0xF5: PUSH AF
+                                            var pushData = _regs[REG_A] << 8;
+                                                pushData |= (_nZFlag == 0) ? 0x80 : 0x00;
+                                                pushData |= (_NFlag) ? 0x40 : 0x00;
+                                                pushData |= (_HFlag) ? 0x20 : 0x00;
+                                                pushData |= (_CFlag) ? 0x10 : 0x00;
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, pushData & 0xFF);
+                                                cycleMClock(4);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xF6) {
+                                            // 0xF6: OR d8
+                                            _regs[REG_A] |= busRead(_pc);
+                                                _nZFlag = _regs[REG_A];
+                                                _NFlag = 0;
+                                                _HFlag = 0;
+                                                _CFlag = 0;
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xF7: RST 30H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (opcode <= 0xFB) {
+                                    if (opcode <= 0xF9) {
+                                        if (opcode <= 0xF8) {
+                                            // 0xF8: LD HL,SP+r8
+                                            var offset = (busRead(_pc) << 24) >> 24; // Convert to 32 bit signed
+                                                var result = _sp + offset;
+                                                _regs[REG_H] = (result >> 8) & 0xFF;
+                                                _regs[REG_L] = result & 0xFF;
+                                                
+                                                var carry = _sp ^ offset ^ result;
+                                                _nZFlag = 1;
+                                                _NFlag = 0;
+                                                _HFlag = carry & 0x10;
+                                                _CFlag = carry & 0x100;
+                                                _pc++;
+                                                cycleMClock(3);
+                                        } else {
+                                            // 0xF9: LD SP,HL
+                                            _sp = (_regs[REG_H] << 8) | _regs[REG_L];
+                                                cycleMClock(2);
+                                        }
+                                    } else {
+                                        if (opcode <= 0xFA) {
+                                            // 0xFA: LD A,(a16)
+                                            var addr = busRead(_pc);
+                                                _pc++;
+                                                addr |= busRead(_pc) << 8;
+                                                _pc++;
+                                                _regs[REG_A] = busRead(addr);
+                                                cycleMClock(4);
+                                        } else {
+                                            // 0xFB: EI
+                                            _imeNext = true;
+                                                cycleMClock(1);
+                                        }
+                                    }
+                                } else {
+                                    if (opcode <= 0xFD) {
+                                        if (opcode <= 0xFC) {
+                                            // 0xFC: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        } else {
+                                            // 0xFD: INVALID
+                                            System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
+                                                throw new Lang.Exception();
+                                        }
+                                    } else {
+                                        if (opcode <= 0xFE) {
+                                            // 0xFE: CP d8
+                                            var value = busRead(_pc);
+                                                var result = _regs[REG_A] - value;
+                                                calcFlags(_regs[REG_A], value, result, 1, 0x100);
+                                                _pc++;
+                                                cycleMClock(2);
+                                        } else {
+                                            // 0xFF: RST 38H
+                                            _sp -= 1;
+                                                busWrite(_sp, _pc >> 8);
+                                                _sp -= 1;
+                                                busWrite(_sp, _pc & 0xFF);
+                                                _pc = opcode & 0x38;
+                                                cycleMClock(4);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // Don't process _imeNext if Op EI just ran
+            if (_imeNext && opcode != 0xFB) {
+                _imeNext = false;
+                _ime = true;
             }
         }
-        if (_NFlag != 0) {
-            _regs[REG_A] = (_regs[REG_A] - adj) & 0xFF;
-        } else {
-            _regs[REG_A] = (_regs[REG_A] + adj) & 0xFF;
-        }
-        _nZFlag = _regs[REG_A]; 
-        _HFlag = 0;
-        cycleMClock(1);
+        _lastWaitTime = System.getTimer();
     }
 
-    function op_nop(opcode as Number) as Void {
-        cycleMClock(1);
-    }
-
-    function op_invalid(opcode as Number) as Void {
-        System.println("Opcode not implemented: 0x" + opcode.format("%02X"));
-        throw new Lang.Exception();
-    }
 
     // TODO: Look at if performance gains are worth converting this to per op functions
     private function doCBOP(opcode as Number) as Void {
@@ -1769,265 +3135,6 @@ class GameBoy {
             }
         }
     }
-
-    private var _opLookup as Array<GBCPUOp> = [
-        method(:op_nop),
-        method(:op_ld_rr_u16),
-        method(:op_ld_BCptr_A),
-        method(:op_inc_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_rlca),
-        method(:op_ld_u16tr_SP),
-        method(:op_add_HL_rr),
-        method(:op_ld_A_BCptr),
-        method(:op_dec_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_rrca),
-        method(:op_invalid),
-        method(:op_ld_rr_u16),
-        method(:op_ld_DEptr_A),
-        method(:op_inc_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_rla),
-        method(:op_jr_s8),
-        method(:op_add_HL_rr),
-        method(:op_ld_A_DEptr),
-        method(:op_dec_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_rra),
-        method(:op_jr_nz),
-        method(:op_ld_rr_u16),
-        method(:op_ldi_HL_A),
-        method(:op_inc_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_daa),
-        method(:op_jr_z),
-        method(:op_add_HL_rr),
-        method(:op_ldi_A_HL),
-        method(:op_dec_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_cpl),
-        method(:op_jr_nc),
-        method(:op_ld_rr_u16),
-        method(:op_ldd_HL_A),
-        method(:op_inc_rr),
-        method(:op_inc_HLptr),
-        method(:op_dec_HLptr),
-        method(:op_ld_HLptr_u8),
-        method(:op_scf),
-        method(:op_jr_c),
-        method(:op_add_HL_rr),
-        method(:op_ldd_A_HL),
-        method(:op_dec_rr),
-        method(:op_inc_r),
-        method(:op_dec_r),
-        method(:op_ld_r_u8),
-        method(:op_ccf),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_HLptr_r),
-        method(:op_halt),
-        method(:op_ld_HLptr_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_r),
-        method(:op_ld_r_HLptr),
-        method(:op_ld_r_r),
-        method(:op_add_r),
-        method(:op_add_r),
-        method(:op_add_r),
-        method(:op_add_r),
-        method(:op_add_r),
-        method(:op_add_r),
-        method(:op_add_HLptr),
-        method(:op_add_r),
-        method(:op_adc_r),
-        method(:op_adc_r),
-        method(:op_adc_r),
-        method(:op_adc_r),
-        method(:op_adc_r),
-        method(:op_adc_r),
-        method(:op_adc_HLptr),
-        method(:op_adc_r),
-        method(:op_sub_r),
-        method(:op_sub_r),
-        method(:op_sub_r),
-        method(:op_sub_r),
-        method(:op_sub_r),
-        method(:op_sub_r),
-        method(:op_sub_HLptr),
-        method(:op_sub_r),
-        method(:op_sbc_r),
-        method(:op_sbc_r),
-        method(:op_sbc_r),
-        method(:op_sbc_r),
-        method(:op_sbc_r),
-        method(:op_sbc_r),
-        method(:op_sbc_HLptr),
-        method(:op_sbc_r),
-        method(:op_and_r),
-        method(:op_and_r),
-        method(:op_and_r),
-        method(:op_and_r),
-        method(:op_and_r),
-        method(:op_and_r),
-        method(:op_and_HLptr),
-        method(:op_and_r),
-        method(:op_xor_r),
-        method(:op_xor_r),
-        method(:op_xor_r),
-        method(:op_xor_r),
-        method(:op_xor_r),
-        method(:op_xor_r),
-        method(:op_xor_HLptr),
-        method(:op_xor_r),
-        method(:op_or_r),
-        method(:op_or_r),
-        method(:op_or_r),
-        method(:op_or_r),
-        method(:op_or_r),
-        method(:op_or_r),
-        method(:op_or_HLptr),
-        method(:op_or_r),
-        method(:op_cp_r),
-        method(:op_cp_r),
-        method(:op_cp_r),
-        method(:op_cp_r),
-        method(:op_cp_r),
-        method(:op_cp_r),
-        method(:op_cp_HLptr),
-        method(:op_cp_r),
-        method(:op_ret_nz),
-        method(:op_pop_rr),
-        method(:op_jp_nz),
-        method(:op_jp_u16),
-        method(:op_call_nz),
-        method(:op_push_rr),
-        method(:op_add_u8),
-        method(:op_rst),
-        method(:op_ret_z),
-        method(:op_ret_and_reti),
-        method(:op_jp_z),
-        method(:op_cb_op),
-        method(:op_call_z),
-        method(:op_call_u16),
-        method(:op_adc_u8),
-        method(:op_rst),
-        method(:op_ret_nc),
-        method(:op_pop_rr),
-        method(:op_jp_nc),
-        method(:op_invalid),
-        method(:op_call_nc),
-        method(:op_push_rr),
-        method(:op_sub_u8),
-        method(:op_rst),
-        method(:op_ret_c),
-        method(:op_ret_and_reti),
-        method(:op_jp_c),
-        method(:op_invalid),
-        method(:op_call_c),
-        method(:op_invalid),
-        method(:op_sbc_u8),
-        method(:op_rst),
-        method(:op_ld_u8ptr_A),
-        method(:op_pop_rr),
-        method(:op_ld_Cptr_A),
-        method(:op_invalid),
-        method(:op_invalid),
-        method(:op_push_rr),
-        method(:op_and_u8),
-        method(:op_rst),
-        method(:op_add_SP_s8),
-        method(:op_jp_hl),
-        method(:op_ld_u16ptr_A),
-        method(:op_invalid),
-        method(:op_invalid),
-        method(:op_invalid),
-        method(:op_xor_u8),
-        method(:op_rst),
-        method(:op_ld_A_u8ptr),
-        method(:op_pop_AF),
-        method(:op_ld_A_Cptr),
-        method(:op_di),
-        method(:op_invalid),
-        method(:op_push_AF),
-        method(:op_or_u8),
-        method(:op_rst),
-        method(:op_ld_HL_SP_s8),
-        method(:op_ld_SP_HL),
-        method(:op_ld_A_u16ptr),
-        method(:op_ei),
-        method(:op_invalid),
-        method(:op_invalid),
-        method(:op_cp_u8),
-        method(:op_rst),
-    ];
 
     private const _opStrings as Array<String> = [
         "NOP        ",
